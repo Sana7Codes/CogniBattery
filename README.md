@@ -2,7 +2,7 @@
 
 > A clinical-grade cognitive testing platform for intraoperative and neuropsychological research.
 
-CogniBattery delivers a dual-screen stimulus presentation suite with crash-safe event logging, hardware trigger support, and a clean clinician interface — purpose-built for demanding clinical and research environments.
+CogniBattery delivers a dual-screen stimulus presentation suite with crash-safe event logging, hardware trigger support, and a clean clinician interface - purpose-built for demanding clinical and research environments.
 
 ---
 
