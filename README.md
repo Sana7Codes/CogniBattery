@@ -30,7 +30,7 @@ CogniBattery provides the software infrastructure to:
 - timestamp every event relative to the stimulation window
 - export structured data for clinical and research analysis
 
-The platform runs entirely **offline** — no network connection, no cloud services, no external dependencies at runtime.
+The platform runs entirely **offline**  no network connection, no cloud services, no external dependencies at runtime.
 =======
 Every stimulus event, response, stimulation trigger, and error is written synchronously to disk to ensure **crash-safe experimental logging**.
 =======
