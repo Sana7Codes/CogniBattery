@@ -2,6 +2,7 @@
 
 ### Clinical-grade cognitive testing platform for intraoperative and neuropsychological research
 
+<<<<<<< HEAD
 ![Python](https://img.shields.io/badge/Python-3.10+-blue)
 ![Kivy](https://img.shields.io/badge/UI-Kivy-green)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
@@ -12,6 +13,9 @@
 CogniBattery is a dual-screen cognitive testing platform designed for clinical and neuroscience research environments. It presents cognitive tasks on a **patient display** while clinicians monitor and control the session from a dedicated **control interface**.
 
 Every stimulus event, response, stimulation trigger, and error is written synchronously to disk to ensure **crash-safe experimental logging**.
+=======
+CogniBattery delivers a dual-screen stimulus presentation suite with crash-safe event logging, hardware trigger support, and a clean clinician interface - purpose-built for demanding clinical and research environments.
+>>>>>>> ade0d983c2a643f87a43e13d699cc8d54ece25f1
 
 ---
 
