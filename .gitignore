@@ -55,7 +55,3 @@ htmlcov/
 ./sessions/*.json
 
 
-./data/
-./data/*.json
-./data/*.csv
-./data/*.db
