@@ -3,9 +3,6 @@
 ### Clinical-grade cognitive testing platform for intraoperative and neuropsychological research
 
 
-=======
-
-
 ![Python](https://img.shields.io/badge/Python-3.10+-blue)
 ![Kivy](https://img.shields.io/badge/UI-Kivy-green)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
@@ -16,7 +13,7 @@
 
 CogniBattery is a standalone dual-screen cognitive testing platform built for clinical neuroscience research — specifically for use during **stereo-EEG (SEEG) intracranial stimulation** sessions. It presents cognitive tasks on a **patient touchscreen** while the clinician monitors and controls the session from a dedicated **control interface**.
 
-<<<<<<< HEAD
+
 Every stimulus event, patient response, stimulation timestamp, and error is written synchronously to disk to guarantee **crash-safe experimental logging** with no data loss.
 
 > **Safety note:** CogniBattery never triggers electrical stimulation. `STIM_START` is a passive timestamp of an external event — it records *when* the medical team triggered the stimulator, not *whether* to trigger it.
