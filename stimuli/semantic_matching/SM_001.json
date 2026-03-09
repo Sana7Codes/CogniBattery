@@ -3,7 +3,7 @@
   "task_type": "SemanticMatching",
   "correct_response": "left",
   "left_right_balance": "left",
-  "is_excluded": true,
+  "is_excluded": false,
   "payload": {
     "center_image": "semantic_matching/Image1.jpg",
     "left_image": "semantic_matching/Image2.jpg",

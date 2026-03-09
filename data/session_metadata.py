@@ -18,7 +18,8 @@ METADATA_SUFFIX = "_metadata.json"
 
 def metadata_path_from_csv(csv_path: str) -> str:
     """Return the metadata JSON path corresponding to a CSV path."""
-    return csv_path.replace("_events.csv", METADATA_SUFFIX)
+    stem = os.path.splitext(csv_path)[0]
+    return stem + METADATA_SUFFIX
 
 
 def write_metadata(

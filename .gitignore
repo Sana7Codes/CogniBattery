@@ -48,3 +48,14 @@ htmlcov/
 
 # Kivy temp/config if local and not needed
 *.kv~
+
+
+./sessions/
+./sessions/*.session
+./sessions/*.json
+
+
+./data/
+./data/*.json
+./data/*.csv
+./data/*.db

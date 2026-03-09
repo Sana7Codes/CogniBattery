@@ -106,3 +106,79 @@ class StimSignalListener:
         if self._listener is not None:
             self._listener.stop()
             self._listener = None
+
+
+# ---------------------------------------------------------------------------
+# Subprocess-isolated listener (safe on Apple Silicon / macOS 15)
+# ---------------------------------------------------------------------------
+
+def _listener_subprocess_worker(key: str, queue) -> None:
+    """
+    Runs inside an isolated subprocess.
+    A SIGILL or blocking macOS security dialog here cannot crash the parent process.
+    """
+    try:
+        from pynput import keyboard
+
+        def on_press(k):
+            try:
+                key_str = k.name if hasattr(k, "name") else str(k)
+                if key_str == key:
+                    queue.put_nowait("trigger")
+            except Exception:
+                pass
+
+        with keyboard.Listener(on_press=on_press) as listener:
+            listener.join()
+    except Exception:
+        pass  # Subprocess exits quietly on any error
+
+
+class SubprocessStimSignalListener:
+    """
+    Runs pynput in an isolated subprocess so that a SIGILL (Accessibility
+    permission missing on Apple Silicon) or a blocking macOS Input Monitoring
+    security dialog cannot crash or freeze the main application process.
+
+    Usage:
+        listener = SubprocessStimSignalListener()
+        listener.start_listening(key="f12", callback=my_callback)
+        # In the main loop:
+        listener.poll()          # fires callback for each queued trigger
+        # On teardown:
+        listener.stop_listening()
+    """
+
+    def __init__(self):
+        self._process = None
+        self._queue = None
+        self._callback: Optional[Callable] = None
+
+    def start_listening(self, key: str, callback: Callable) -> None:
+        import multiprocessing
+        self._callback = callback
+        self._queue = multiprocessing.Queue()
+        self._process = multiprocessing.Process(
+            target=_listener_subprocess_worker,
+            args=(key, self._queue),
+            daemon=True,
+        )
+        self._process.start()
+
+    def poll(self) -> None:
+        """Call from the main event-loop tick to dispatch any queued triggers."""
+        if self._queue is None or self._callback is None:
+            return
+        try:
+            while not self._queue.empty():
+                self._queue.get_nowait()
+                self._callback()
+        except Exception:
+            pass
+
+    def stop_listening(self) -> None:
+        if self._process is not None:
+            self._process.terminate()
+            self._process = None
+        self._queue = None
+        self._callback = None

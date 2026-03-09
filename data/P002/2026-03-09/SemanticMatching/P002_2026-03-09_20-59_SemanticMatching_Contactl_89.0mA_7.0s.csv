@@ -1,0 +1,20 @@
+# SessionID,dbe3a8dc-83e9-4166-a92a-d29e696f0e44
+# SoftwareVersion,1.0.0
+# PatientID,P002
+# SessionDate,2026-03-09
+# SessionStartTime,20:59:37
+# TestType,SemanticMatching
+# Electrode,yh
+# Contact,l
+# StimulationIntensity_mA,89.0
+# StimulationDuration_s,7.0
+# ProgressionMode,ClinicianAction
+# StimSignalKey,f12
+# ScreenWidth_px,1920
+# ScreenHeight_px,1080
+# StimuliIncluded,SM_001;SM_002;SM_003;SM_004;SM_005;SM_006;SM_007;SM_008;SM_009;SM_010;SM_011;SM_012;SM_013;SM_014;SM_015;SM_016;SM_017;SM_018;SM_019;SM_020;SM_021;SM_022;SM_023;SM_024;SM_025;SM_026;SM_027;SM_028;SM_029;SM_030
+# StimuliExcluded,
+Time_s,Time_iso,Event,Essai,Stimulus,Response,Correct,TR_s,TouchX,TouchY,Notes
+1.1e-05,2026-03-09T21:00:09.966681,SESSION_START,,,,,,,,SessionID=dbe3a8dc-83e9-4166-a92a-d29e696f0e44;PatientID=P002;TestType=SemanticMatching;Electrode=yh;Contact=l;Intensity_mA=89.0;Duration_s=7.0;ProgressionMode=ClinicianAction;SoftwareVersion=1.0.0
+0.045034,2026-03-09T21:00:10.011708,TRIAL_START,1,SM_002,,,,,,
+0.045236,2026-03-09T21:00:10.011906,IMAGE_ON,1,SM_002,,,,,,

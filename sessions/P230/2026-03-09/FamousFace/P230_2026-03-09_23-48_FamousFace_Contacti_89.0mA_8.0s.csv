@@ -1,0 +1,20 @@
+# SessionID,0f3a6507-2260-4213-8319-71d789e91586
+# SoftwareVersion,1.0.0
+# PatientID,P230
+# SessionDate,2026-03-09
+# SessionStartTime,23:48:41
+# TestType,FamousFace
+# Electrode,h
+# Contact,i
+# StimulationIntensity_mA,89.0
+# StimulationDuration_s,8.0
+# ProgressionMode,ClinicianAction
+# StimSignalKey,f12
+# ScreenWidth_px,1920
+# ScreenHeight_px,1080
+# StimuliIncluded,FF_001;FF_002;FF_003;FF_004;FF_005;FF_006;FF_007;FF_008;FF_009;FF_010;FF_011;FF_012;FF_013;FF_014;FF_015;FF_016;FF_017;FF_018;FF_019;FF_020;FF_021;FF_022;FF_023;FF_024;FF_025;FF_026;FF_027;FF_028;FF_029;FF_030;FF_031;FF_032;FF_033;FF_034;FF_035;FF_036;FF_037;FF_038;FF_039
+# StimuliExcluded,
+Time_s,Time_iso,Event,Essai,Stimulus,Response,Correct,TR_s,TouchX,TouchY,Notes
+1e-05,2026-03-09T23:49:07.028097,SESSION_START,,,,,,,,SessionID=0f3a6507-2260-4213-8319-71d789e91586;PatientID=P230;TestType=FamousFace;Electrode=h;Contact=i;Intensity_mA=89.0;Duration_s=8.0;ProgressionMode=ClinicianAction;SoftwareVersion=1.0.0
+0.044636,2026-03-09T23:49:07.072725,TRIAL_START,1,FF_001,,,,,,
+0.044803,2026-03-09T23:49:07.072890,IMAGE_ON,1,FF_001,,,,,,

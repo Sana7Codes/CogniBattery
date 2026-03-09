@@ -27,7 +27,7 @@ class App:
     POLL_INTERVAL_S = 0.010  # 10 ms polling interval
 
     def __init__(self, config: Optional[SessionConfig] = None,
-                 output_base_dir: str = "Data"):
+                 output_base_dir: str = "sessions"):
         self._config          = config
         self._output_base_dir = output_base_dir
         self._session:         Optional[Session] = None

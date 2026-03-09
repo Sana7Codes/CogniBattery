@@ -22,6 +22,7 @@ from ui.clinician_screen import ClinicianView
 from ui.patient_screen import KivyPatientScreen
 from core.session import ProgressionMode, SessionConfig
 from core.stimulus import StimulusSet
+from core.stim_signal import SubprocessStimSignalListener
 from tasks.base_task import BaseTask
 
 
@@ -72,6 +73,7 @@ class KivyApp(KivyBaseApp):
 
         self._timer_start_s: Optional[float] = None
         self._awaiting_clinician_advance: bool = False
+        self._stim_sub_listener: Optional[SubprocessStimSignalListener] = None
 
         # Optional trigger backend (TTL / LSL) — set externally before run()
         from core.trigger import CompositeTrigger
@@ -92,12 +94,11 @@ class KivyApp(KivyBaseApp):
 
         try:
             from AppKit import NSScreen
-            # NSScreen gives dimensions in logical points (same unit as Window.size).
-            # Do NOT multiply by density — that would produce physical pixels, which
-            # Kivy does not accept for Window.size on macOS (SDL2 uses logical pts).
-            frame    = NSScreen.mainScreen().frame()
-            screen_w = int(frame.size.width)
-            screen_h = int(frame.size.height)
+            # Use logical point dimensions (NSScreen always reports logical points
+            # regardless of SDL_VIDEO_HIGHDPI_DISABLED — safe to use directly).
+            screens  = NSScreen.screens()
+            screen_w = int(max(s.frame().origin.x + s.frame().size.width  for s in screens))
+            screen_h = int(max(s.frame().size.height for s in screens))
         except Exception:
             # Non-macOS or pyobjc not available — assume screen is large enough
             screen_w = screen_h = 999999
@@ -111,8 +112,23 @@ class KivyApp(KivyBaseApp):
             total_w, h = total_w_req, h_req
 
         Window.size = (total_w, h)
-        Window.left = 0
-        Window.top  = 0
+
+        # Position the window at the origin of the macOS primary display.
+        # NSScreen.mainScreen() is always the screen with the menu bar (MacBook Air).
+        try:
+            from AppKit import NSScreen
+            main_frame = NSScreen.mainScreen().frame()
+            # On macOS, screen Y is measured from the bottom of the virtual desktop.
+            # Convert to top-left origin (SDL2 uses top-left).
+            all_screens = NSScreen.screens()
+            virtual_h = int(max(s.frame().origin.y + s.frame().size.height for s in all_screens))
+            origin_x = int(main_frame.origin.x)
+            origin_y = int(virtual_h - main_frame.origin.y - main_frame.size.height)
+            Window.left = origin_x
+            Window.top  = origin_y
+        except Exception:
+            Window.left = 0
+            Window.top  = 0
 
         clinician_ratio = self._clinician_w / (self._clinician_w + self._patient_w)
 
@@ -157,7 +173,7 @@ class KivyApp(KivyBaseApp):
         File I/O runs on a background thread to avoid blocking the UI."""
         import os
         from core.recovery import find_incomplete_sessions
-        output_dir = os.path.join(self._base_dir, "Data")
+        output_dir = os.path.join(self._base_dir, "sessions")
 
         def _scan():
             try:
@@ -260,7 +276,7 @@ class KivyApp(KivyBaseApp):
         def _setup():
             try:
                 domain_app = App(config, output_base_dir=os.path.join(
-                    self._base_dir, "Data"
+                    self._base_dir, "sessions"
                 ))
                 clock     = Clock()
                 trigger   = self.trigger if self.trigger.is_active else None
@@ -302,7 +318,7 @@ class KivyApp(KivyBaseApp):
         def _setup():
             try:
                 domain_app = App(config, output_base_dir=os.path.join(
-                    self._base_dir, "Data"
+                    self._base_dir, "sessions"
                 ))
                 domain_app.setup(
                     trigger=self.trigger if self.trigger.is_active else None
@@ -330,23 +346,22 @@ class KivyApp(KivyBaseApp):
         self._stim_set   = stim_set
         self._task       = task
 
-        _listener = domain_app._stim_listener
-        _key      = config.stim_signal_key
-        def _start_listener():
-            try:
-                _listener.start_listening(
-                    key=_key,
-                    callback=self._on_stim_signal_safe,
-                )
-            except Exception as exc:
-                def _warn(dt, _exc=exc):
-                    session.error(_exc)
-                    self._clinician_view.show_error(
-                        f"Signal stimulation désactivé :\n{_exc}\n\n"
-                        "La séance continue sans déclencheur externe."
-                    )
-                Clock.schedule_once(_warn, 0)
-        threading.Thread(target=_start_listener, daemon=True).start()
+        # Start pynput in an isolated subprocess.  A SIGILL (Accessibility permission
+        # missing on Apple Silicon) or a blocking Input Monitoring dialog in the
+        # subprocess cannot crash or freeze the main application process.
+        _sub = SubprocessStimSignalListener()
+        try:
+            _sub.start_listening(
+                key=config.stim_signal_key,
+                callback=self._on_stim_signal_safe,
+            )
+            self._stim_sub_listener = _sub
+        except Exception as exc:
+            session.error(exc)
+            self._clinician_view.show_error(
+                f"Signal stimulation désactivé :\n{exc}\n\n"
+                "La séance continue sans déclencheur externe."
+            )
 
         self._clinician_view.show_session_mode()
 
@@ -376,6 +391,12 @@ class KivyApp(KivyBaseApp):
                 self._domain_app.write_integrity_hash()
         except Exception:
             pass
+        try:
+            if self._stim_sub_listener is not None:
+                self._stim_sub_listener.stop_listening()
+        except Exception:
+            pass
+        self._stim_sub_listener = None
         self._domain_app  = None
         self._task        = None
         self._stim_set    = None
@@ -397,6 +418,9 @@ class KivyApp(KivyBaseApp):
             session = self._domain_app._session
             if session is None:
                 return
+
+            if self._stim_sub_listener is not None:
+                self._stim_sub_listener.poll()
 
             self._clinician_view.update_timer(session.clock.now_relative())
 
