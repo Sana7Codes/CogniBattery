@@ -94,8 +94,8 @@ Battery/
 
 ```bash
 # 1. Clone the repository
-git clone <repo-url>
-cd Battery
+git clone https://github.com/Sana7Codes/CogniBattery.git
+cd CogniBattery
 
 # 2. Create and activate a virtual environment
 python -m venv batteryenv
