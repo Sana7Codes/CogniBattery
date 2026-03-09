@@ -1,0 +1,12 @@
+{
+  "stimulus_id": "FF_024",
+  "task_type": "FamousFace",
+  "is_familiar": true,
+  "is_excluded": false,
+  "payload": {
+    "face_image": "famous_face/image_24_0.jpg",
+    "person_name": "Arnold Schwarzenegger",
+    "person_category": "entertainment",
+    "nationality": "US"
+  }
+}

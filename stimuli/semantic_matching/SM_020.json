@@ -1,0 +1,16 @@
+{
+  "stimulus_id": "SM_020",
+  "task_type": "SemanticMatching",
+  "correct_response": "right",
+  "left_right_balance": "right",
+  "is_excluded": false,
+  "payload": {
+    "center_image": "semantic_matching/Image58.jpg",
+    "left_image": "semantic_matching/Image60.jpg",
+    "right_image": "semantic_matching/Image59.jpg",
+    "center_label": "",
+    "left_label": "",
+    "right_label": "",
+    "semantic_category": "body_parts"
+  }
+}

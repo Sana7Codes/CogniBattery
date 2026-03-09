@@ -1,0 +1,12 @@
+{
+  "stimulus_id": "FF_019",
+  "task_type": "FamousFace",
+  "is_familiar": true,
+  "is_excluded": false,
+  "payload": {
+    "face_image": "famous_face/image_19_0.jpg",
+    "person_name": "Vladimir Poutine",
+    "person_category": "politics",
+    "nationality": "RU"
+  }
+}

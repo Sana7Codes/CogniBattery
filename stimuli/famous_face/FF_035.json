@@ -1,0 +1,12 @@
+{
+  "stimulus_id": "FF_035",
+  "task_type": "FamousFace",
+  "is_familiar": true,
+  "is_excluded": false,
+  "payload": {
+    "face_image": "famous_face/image_35_0.jpg",
+    "person_name": "Jean Dujardin",
+    "person_category": "entertainment",
+    "nationality": "FR"
+  }
+}

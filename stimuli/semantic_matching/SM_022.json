@@ -1,0 +1,16 @@
+{
+  "stimulus_id": "SM_022",
+  "task_type": "SemanticMatching",
+  "correct_response": "right",
+  "left_right_balance": "right",
+  "is_excluded": false,
+  "payload": {
+    "center_image": "semantic_matching/Image64.jpg",
+    "left_image": "semantic_matching/Image66.jpg",
+    "right_image": "semantic_matching/Image65.jpg",
+    "center_label": "",
+    "left_label": "",
+    "right_label": "",
+    "semantic_category": "nature"
+  }
+}

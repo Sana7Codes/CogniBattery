@@ -1,0 +1,12 @@
+{
+  "stimulus_id": "FF_009",
+  "task_type": "FamousFace",
+  "is_familiar": true,
+  "is_excluded": false,
+  "payload": {
+    "face_image": "famous_face/image_9_0.jpg",
+    "person_name": "Léonardo Dicaprio",
+    "person_category": "entertainment",
+    "nationality": "US"
+  }
+}

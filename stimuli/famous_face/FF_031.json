@@ -1,0 +1,12 @@
+{
+  "stimulus_id": "FF_031",
+  "task_type": "FamousFace",
+  "is_familiar": true,
+  "is_excluded": false,
+  "payload": {
+    "face_image": "famous_face/image_31_0.jpg",
+    "person_name": "Gad Elmaleh",
+    "person_category": "entertainment",
+    "nationality": "FR"
+  }
+}

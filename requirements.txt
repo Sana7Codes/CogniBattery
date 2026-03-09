@@ -1,0 +1,20 @@
+# ─── Core ────────────────────────────────────────────────────────────────────
+# UI framework (SDL2 backend covers macOS, Windows, Linux)
+kivy[sdl2]>=2.3.1
+
+# macOS only: needed to read the real screen dimensions for correct window sizing
+pyobjc-framework-Cocoa>=10.0; sys_platform == "darwin"
+
+# ─── Optional — clinical hardware ────────────────────────────────────────────
+# External F-key / USB button → STIM_START signal (StimSignalListener)
+pynput>=1.7.0
+
+# TTL pulse via USB-to-serial adapter (TTLTrigger)
+pyserial>=3.5
+
+# LabStreamingLayer EEG marker stream (LSLTrigger)
+pylsl>=1.16.0
+
+# ─── Optional — stimulus validation ─────────────────────────────────────────
+# JSON Schema validation for stimulus files (silently skipped if absent)
+jsonschema>=4.0.0

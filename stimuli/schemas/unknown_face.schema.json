@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "unknown_face.schema.json",
+  "title": "UnknownFacePlanche",
+  "description": "One planche for the Unknown Face task. The patient sees a single face of a non-famous person and states whether they recognise it. The correct answer is always 'no' (is_familiar=false). Demographic fields support post-hoc bias analysis.",
+  "type": "object",
+  "required": ["stimulus_id", "task_type", "payload", "is_familiar"],
+  "additionalProperties": false,
+  "properties": {
+
+    "stimulus_id": {
+      "type": "string",
+      "pattern": "^UF_[0-9]{3}$",
+      "description": "Unique planche identifier. Format: UF_NNN (e.g. UF_001)."
+    },
+
+    "task_type": {
+      "type": "string",
+      "const": "UnknownFace"
+    },
+
+    "is_familiar": {
+      "type": "boolean",
+      "const": false,
+      "description": "Always false for Unknown Face stimuli. Any 'yes' response is therefore an error (false positive)."
+    },
+
+    "is_excluded": {
+      "type": "boolean",
+      "default": false
+    },
+
+    "payload": {
+      "type": "object",
+      "required": [
+        "face_image",
+        "age_group",
+        "gender_presentation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+
+        "face_image": {
+          "type": "string",
+          "description": "Path to the face image, relative to stimuli/images/. Must use controlled neutral-expression photos."
+        },
+
+        "age_group": {
+          "type": "string",
+          "enum": ["young", "middle-aged", "older"],
+          "description": "Perceived age group of the depicted person. Balanced across the set to avoid age-related familiarity bias."
+        },
+
+        "gender_presentation": {
+          "type": "string",
+          "enum": ["masculine", "feminine", "androgynous", "unspecified"],
+          "description": "Perceived gender presentation of the depicted person."
+        },
+
+        "ethnicity_group": {
+          "type": "string",
+          "description": "Optional broad ethnicity grouping for diversity-coverage checks (free text, site-specific vocabulary)."
+        },
+
+        "image_source": {
+          "type": "string",
+          "description": "Dataset or source of the image (e.g. 'Chicago Face Database', 'local photo')."
+        },
+
+        "expression": {
+          "type": "string",
+          "enum": ["neutral", "slight_smile"],
+          "description": "Facial expression in the image. Neutral is preferred for clinical standardisation."
+        }
+      }
+    }
+  }
+}

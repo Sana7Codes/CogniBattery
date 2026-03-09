@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CounterbalancingRules",
+  "description": "Machine-enforceable constraints on stimulus set composition. StimulusLibrary.check_counterbalancing() reads this file.",
+  "version": "1.0",
+
+  "SemanticMatching": {
+    "description": "Rules for a valid SemanticMatching stimulus set.",
+
+    "set_size": {
+      "min": 20,
+      "recommended": 30,
+      "description": "Minimum and recommended total planches per session."
+    },
+
+    "left_right_balance": {
+      "field": "left_right_balance",
+      "values": ["left", "right"],
+      "min_fraction_each": 0.40,
+      "max_fraction_each": 0.60,
+      "description": "Neither side should appear as correct answer in more than 60% of planches. Target: 50/50."
+    },
+
+    "category_coverage": {
+      "field": "payload.semantic_category",
+      "min_planches_per_category": 2,
+      "description": "Each semantic category present in the set must appear at least twice to avoid single-instance bias."
+    },
+
+    "difficulty_distribution": {
+      "field": "payload.difficulty",
+      "required": false,
+      "recommendation": "Include at least 20% easy (1-2) and 20% hard (4-5) planches when difficulty is rated.",
+      "description": "Optional. Only enforced if all planches carry a difficulty rating."
+    }
+  },
+
+  "FamousFace": {
+    "description": "Rules for a valid FamousFace stimulus set.",
+
+    "set_size": {
+      "min": 10,
+      "recommended": 20,
+      "description": "Minimum and recommended total planches per session."
+    },
+
+    "category_coverage": {
+      "field": "payload.person_category",
+      "min_planches_per_category": 2,
+      "description": "Each person category present in the set must appear at least twice."
+    },
+
+    "era_coverage": {
+      "field": "payload.fame_era",
+      "required": false,
+      "recommendation": "Include faces from at least two distinct fame eras to probe different memory windows.",
+      "description": "Optional. Helps ensure stimuli span the patient's life period."
+    }
+  },
+
+  "UnknownFace": {
+    "description": "Rules for a valid UnknownFace stimulus set. All faces must be genuinely unknown; false positives (patient says 'yes') are clinically significant errors.",
+
+    "set_size": {
+      "min": 10,
+      "recommended": 20,
+      "description": "Minimum and recommended total planches per session."
+    },
+
+    "age_group_balance": {
+      "field": "payload.age_group",
+      "values": ["young", "middle-aged", "older"],
+      "min_fraction_each": 0.20,
+      "description": "Each age group must represent at least 20% of the set."
+    },
+
+    "gender_presentation_balance": {
+      "field": "payload.gender_presentation",
+      "values": ["masculine", "feminine"],
+      "min_fraction_each": 0.30,
+      "description": "Masculine and feminine presentations must each represent at least 30% of the set."
+    }
+  }
+}

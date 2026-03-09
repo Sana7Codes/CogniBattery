@@ -1,0 +1,12 @@
+{
+  "stimulus_id": "FF_030",
+  "task_type": "FamousFace",
+  "is_familiar": true,
+  "is_excluded": false,
+  "payload": {
+    "face_image": "famous_face/image_30_0.jpg",
+    "person_name": "Johnny Hallyday",
+    "person_category": "entertainment",
+    "nationality": "FR"
+  }
+}

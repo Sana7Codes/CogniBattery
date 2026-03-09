@@ -1,0 +1,12 @@
+{
+  "stimulus_id": "UF_015",
+  "task_type": "UnknownFace",
+  "is_familiar": false,
+  "is_excluded": false,
+  "payload": {
+    "face_image": "unknown_face/image_15_0.jpg",
+    "age_group": "middle-aged",
+    "gender_presentation": "masculine",
+    "image_source": "ADessaules/Cognitive-test"
+  }
+}

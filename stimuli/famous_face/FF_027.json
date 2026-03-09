@@ -1,0 +1,12 @@
+{
+  "stimulus_id": "FF_027",
+  "task_type": "FamousFace",
+  "is_familiar": true,
+  "is_excluded": false,
+  "payload": {
+    "face_image": "famous_face/image_27_0.jpg",
+    "person_name": "Florent Pagny",
+    "person_category": "entertainment",
+    "nationality": "FR"
+  }
+}

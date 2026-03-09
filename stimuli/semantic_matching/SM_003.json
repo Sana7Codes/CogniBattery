@@ -1,0 +1,16 @@
+{
+  "stimulus_id": "SM_003",
+  "task_type": "SemanticMatching",
+  "correct_response": "left",
+  "left_right_balance": "left",
+  "is_excluded": false,
+  "payload": {
+    "center_image": "semantic_matching/Image7.jpg",
+    "left_image": "semantic_matching/Image8.jpg",
+    "right_image": "semantic_matching/Image9.jpg",
+    "center_label": "",
+    "left_label": "",
+    "right_label": "",
+    "semantic_category": "tools"
+  }
+}

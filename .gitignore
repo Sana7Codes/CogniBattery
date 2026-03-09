@@ -1,0 +1,50 @@
+# Virtual environments
+batteryenv/
+venv/
+.venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS files
+.DS_Store
+
+# IDE / Editor
+.vscode/
+.idea/
+
+# Claude / local assistant config
+.claude/
+
+# Environment files
+.env
+.env.*
+
+# Build / distribution
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
+
+# Local output data
+output/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Mypy / Ruff / tooling caches
+.mypy_cache/
+.ruff_cache/
+
+# Kivy temp/config if local and not needed
+*.kv~

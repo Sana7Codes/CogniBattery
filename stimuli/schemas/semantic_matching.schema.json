@@ -1,0 +1,112 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "semantic_matching.schema.json",
+  "title": "SemanticMatchingPlanche",
+  "description": "One planche for the Semantic Matching task. The patient sees a central target image and two peripheral choice images; they must touch the one that belongs to the same semantic category as the target.",
+  "type": "object",
+  "required": ["stimulus_id", "task_type", "payload", "correct_response", "left_right_balance"],
+  "additionalProperties": false,
+  "properties": {
+
+    "stimulus_id": {
+      "type": "string",
+      "pattern": "^SM_[0-9]{3}$",
+      "description": "Unique planche identifier. Format: SM_NNN (e.g. SM_001)."
+    },
+
+    "task_type": {
+      "type": "string",
+      "const": "SemanticMatching"
+    },
+
+    "correct_response": {
+      "type": "string",
+      "enum": ["left", "right"],
+      "description": "Which side is the semantically correct choice."
+    },
+
+    "left_right_balance": {
+      "type": "string",
+      "enum": ["left", "right"],
+      "description": "Mirror of correct_response. Used explicitly for counterbalancing checks."
+    },
+
+    "is_excluded": {
+      "type": "boolean",
+      "default": false,
+      "description": "Set true to permanently remove this planche from all sets."
+    },
+
+    "payload": {
+      "type": "object",
+      "required": [
+        "center_image",
+        "left_image",
+        "right_image",
+        "center_label",
+        "left_label",
+        "right_label",
+        "semantic_category"
+      ],
+      "additionalProperties": false,
+      "properties": {
+
+        "center_image": {
+          "type": "string",
+          "description": "Path to the central (target) image, relative to stimuli/images/."
+        },
+        "left_image": {
+          "type": "string",
+          "description": "Path to the left choice image, relative to stimuli/images/."
+        },
+        "right_image": {
+          "type": "string",
+          "description": "Path to the right choice image, relative to stimuli/images/."
+        },
+
+        "center_label": {
+          "type": "string",
+          "description": "Human-readable label for the clinician (e.g. 'Marteau')."
+        },
+        "left_label": {
+          "type": "string",
+          "description": "Human-readable label for the left image."
+        },
+        "right_label": {
+          "type": "string",
+          "description": "Human-readable label for the right image."
+        },
+
+        "semantic_category": {
+          "type": "string",
+          "enum": [
+            "tools",
+            "animals",
+            "vehicles",
+            "food",
+            "furniture",
+            "clothing",
+            "body_parts",
+            "nature",
+            "household",
+            "sports"
+          ],
+          "description": "Semantic category shared by center and correct choice."
+        },
+
+        "distractor_type": {
+          "type": "string",
+          "enum": ["semantic", "perceptual", "unrelated"],
+          "description": "How the distractor relates to the target. 'semantic' = same superordinate category; 'perceptual' = visually similar; 'unrelated' = no obvious link."
+        },
+
+        "difficulty": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Clinician-rated difficulty: 1 = trivially easy, 5 = very hard."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "famous_face.schema.json",
+  "title": "FamousFacePlanche",
+  "description": "One planche for the Famous Face task. The patient sees a single face and states whether they recognise it. All stimuli in this task are famous persons (is_familiar=true). The person's name is visible only to the clinician.",
+  "type": "object",
+  "required": ["stimulus_id", "task_type", "payload", "is_familiar"],
+  "additionalProperties": false,
+  "properties": {
+
+    "stimulus_id": {
+      "type": "string",
+      "pattern": "^FF_[0-9]{3}$",
+      "description": "Unique planche identifier. Format: FF_NNN (e.g. FF_001)."
+    },
+
+    "task_type": {
+      "type": "string",
+      "const": "FamousFace"
+    },
+
+    "is_familiar": {
+      "type": "boolean",
+      "const": true,
+      "description": "Always true for Famous Face stimuli. Drives automatic correctness scoring."
+    },
+
+    "is_excluded": {
+      "type": "boolean",
+      "default": false
+    },
+
+    "payload": {
+      "type": "object",
+      "required": [
+        "face_image",
+        "person_name",
+        "person_category"
+      ],
+      "additionalProperties": false,
+      "properties": {
+
+        "face_image": {
+          "type": "string",
+          "description": "Path to the face image, relative to stimuli/images/. Must show the face clearly without text overlays."
+        },
+
+        "person_name": {
+          "type": "string",
+          "description": "Full name of the person. SHOWN TO CLINICIAN ONLY, never to the patient."
+        },
+
+        "person_category": {
+          "type": "string",
+          "enum": [
+            "politics",
+            "entertainment",
+            "sport",
+            "science",
+            "media",
+            "royalty",
+            "other"
+          ],
+          "description": "Domain in which the person is famous. Used for category-coverage counterbalancing."
+        },
+
+        "nationality": {
+          "type": "string",
+          "description": "ISO 3166-1 alpha-2 country code (e.g. 'FR', 'US'). Used to match stimuli to patient population."
+        },
+
+        "fame_era": {
+          "type": "string",
+          "description": "Decade(s) of peak fame, e.g. '1990s', '2000s-present'. Helps match stimuli to patient's cultural memory window."
+        },
+
+        "clinician_notes": {
+          "type": "string",
+          "description": "Private notes for the clinician (context, caveats, image source)."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "stimulus_id": "SM_010",
+  "task_type": "SemanticMatching",
+  "correct_response": "right",
+  "left_right_balance": "right",
+  "is_excluded": false,
+  "payload": {
+    "center_image": "semantic_matching/Image28.jpg",
+    "left_image": "semantic_matching/Image30.jpg",
+    "right_image": "semantic_matching/Image29.jpg",
+    "center_label": "",
+    "left_label": "",
+    "right_label": "",
+    "semantic_category": "food"
+  }
+}
