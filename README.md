@@ -1,14 +1,28 @@
 # CogniBattery
 
-> A clinical-grade cognitive testing platform for intraoperative and neuropsychological research.
+### Clinical-grade cognitive testing platform for intraoperative and neuropsychological research
 
-CogniBattery delivers a dual-screen stimulus presentation suite with crash-safe event logging, hardware trigger support, and a clean clinician interface — purpose-built for demanding clinical and research environments.
+![Python](https://img.shields.io/badge/Python-3.10+-blue)
+![Kivy](https://img.shields.io/badge/UI-Kivy-green)
+![License](https://img.shields.io/badge/license-MIT-lightgrey)
+![Research](https://img.shields.io/badge/use-Research%20%2F%20Clinical-purple)
+
+---
+
+CogniBattery is a dual-screen cognitive testing platform designed for clinical and neuroscience research environments. It presents cognitive tasks on a **patient display** while clinicians monitor and control the session from a dedicated **control interface**.
+
+Every stimulus event, response, stimulation trigger, and error is written synchronously to disk to ensure **crash-safe experimental logging**.
 
 ---
 
 ## Overview
 
-CogniBattery presents cognitive tasks on a **patient screen** while the clinician controls the session from a dedicated **clinician screen**. Every response, stimulus event, and error is written to disk synchronously, making the system robust to unexpected interruptions.
+CogniBattery runs a dual-display experiment environment:
+
+- **Patient Screen** — full-screen stimulus presentation
+- **Clinician Screen** — monitoring, control, and logging interface
+
+All experimental events are recorded with precise timestamps and written to disk immediately, ensuring robust data capture even under unexpected interruptions.
 
 ### Tasks
 
@@ -17,6 +31,31 @@ CogniBattery presents cognitive tasks on a **patient screen** while the clinicia
 | Semantic Matching | `SM_NNN` | Patient selects the semantically matching image from a set of three |
 | Famous Face Recognition | `FF_NNN` | Patient responds Oui/Non to a famous person's face |
 | Unknown Face Recognition | `UF_NNN` | Patient responds Oui/Non to a novel face |
+
+---
+
+## System Architecture
+
+```
+Clinician Screen
+      │
+      ▼
+KivyApp  (UI layer — passive views, no domain state)
+      │
+      ▼
+App  (domain controller — session lifecycle, event loop)
+      │
+      ▼
+Session  (trial management, progression, stim timing)
+      │
+      ▼
+PersistentEventLog  (fsync on every write)
+      │
+      ▼
+CSV + metadata.json + _hash.txt
+```
+
+Core modules (`core/`, `tasks/`, `data/`) are fully independent from the UI layer. All UI callbacks flow upward to `App`.
 
 ---
 
@@ -37,7 +76,7 @@ CogniBattery presents cognitive tasks on a **patient screen** while the clinicia
 ## Project Structure
 
 ```
-Battery/
+CogniBattery/
 ├── main.py                         Entry point
 ├── app.py                          App orchestrator (session lifecycle)
 │
@@ -94,8 +133,8 @@ Battery/
 
 ```bash
 # 1. Clone the repository
-git clone <repo-url>
-cd Battery
+git clone https://github.com/Sana7Codes/CogniBattery.git
+cd CogniBattery
 
 # 2. Create and activate a virtual environment
 python -m venv batteryenv
@@ -114,7 +153,7 @@ pip install -r requirements.txt
 | `pylsl` | LabStreamingLayer EEG marker stream |
 | `jsonschema` | Validate stimulus JSON files against schemas |
 
-All optional packages are listed in `requirements.txt` and will be installed with the command above. The application degrades gracefully if any are absent.
+All optional packages are listed in `requirements.txt`. The application degrades gracefully if any are absent.
 
 ---
 
@@ -134,9 +173,10 @@ Position both monitors side-by-side. The window is placed at `(0, 0)` and spans 
 
 ## Stimulus Files
 
-Each stimulus is a JSON file validated against its task schema.
+Each stimulus is a JSON file validated against its task schema at load time.
 
-**Semantic Matching example** (`stimuli/semantic_matching/SM_001.json`):
+**Semantic Matching example** — `stimuli/semantic_matching/SM_001.json`:
+
 ```json
 {
   "stimulus_id": "SM_001",
@@ -151,7 +191,11 @@ Image paths are relative to `stimuli/images/`. Load a directory with:
 
 ```python
 from core.stimulus import StimulusLibrary
-lib = StimulusLibrary.load_from_directory("stimuli/semantic_matching", task_type="semantic_matching")
+
+lib = StimulusLibrary.load_from_directory(
+    "stimuli/semantic_matching",
+    task_type="semantic_matching"
+)
 ```
 
 Counterbalancing rules live in `stimuli/schemas/counterbalancing_rules.json` and are checked automatically before each session.
@@ -160,11 +204,11 @@ Counterbalancing rules live in `stimuli/schemas/counterbalancing_rules.json` and
 
 ## Data Output
 
-Each session produces three files in `output/<patient_id>/<date>/`:
+Each session produces three files under `output/<patient_id>/<date>/`:
 
 | File | Contents |
 |---|---|
-| `<session_id>.csv` | Full event log (see columns below) |
+| `<session_id>.csv` | Full event log |
 | `<session_id>_metadata.json` | Session config, stimulus set, counterbalancing report |
 | `<session_id>_hash.txt` | SHA-256 hash of the CSV for integrity verification |
 
@@ -175,6 +219,7 @@ Time_s | Time_iso | Event | Essai | Stimulus | Response | Correct | TR_s | Touch
 ```
 
 `STIM_START` notes format:
+
 ```
 StimID=N;Electrode=X;Contact=Y;Intensity_mA=Z;Duration_s=W;Signal=K
 ```
@@ -187,6 +232,7 @@ StimID=N;Electrode=X;Contact=Y;Intensity_mA=Z;Duration_s=W;Signal=K
 
 ```python
 from core.trigger import TTLTrigger, CompositeTrigger
+
 trigger = CompositeTrigger()
 trigger.add(TTLTrigger(port="/dev/ttyUSB0", baudrate=115200))
 kivy_app.trigger = trigger
@@ -196,6 +242,7 @@ kivy_app.trigger = trigger
 
 ```python
 from core.trigger import LSLTrigger, CompositeTrigger
+
 trigger = CompositeTrigger()
 trigger.add(LSLTrigger(stream_name="CogniBattery"))
 kivy_app.trigger = trigger
@@ -207,10 +254,10 @@ Both backends can be combined in a single `CompositeTrigger`. Triggers fire on e
 
 ## Architecture Notes
 
-- **UI screens are passive views** — no domain state is held in the UI layer; all callbacks flow upward to `App`
+- **Passive UI** — screens hold no domain state; all callbacks flow upward to `App`
 - **Thread safety** — `pynput` callbacks are bridged to the Kivy main thread via `Clock.schedule_once(..., 0)`
-- **Retina / HiDPI** — window sizing accounts for `density` factor via `Window.system_size`
-- **Session always ends cleanly** — `App.run()` calls `session.end()` in a `finally` block regardless of how the session exits
+- **Retina / HiDPI** — window sizing accounts for the `density` factor via `Window.system_size`
+- **Clean shutdown** — `App.run()` calls `session.end()` in a `finally` block regardless of how the session exits
 
 ---
 
