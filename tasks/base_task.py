@@ -89,6 +89,20 @@ class BaseTask(ABC):
         )
         self.stimulus_set.advance()
 
+    def replace_stimulus(self, new_stimulus, reason: str = "") -> None:
+        """Log STIMULUS_REPLACE and swap in a replacement for the current stimulus."""
+        old = self.stimulus_set.current
+        notes = f"ReplacedWith={new_stimulus.stimulus_id}"
+        if reason:
+            notes += f";Reason={reason}"
+        self.session.event_log.record(
+            EventType.STIMULUS_REPLACE,
+            essai=self.session.current_trial,
+            stimulus=old.stimulus_id if old else None,
+            notes=notes,
+        )
+        self.stimulus_set.replace_current(new_stimulus)
+
     def exclude_stimulus(self, stimulus_id: str, reason: str = "") -> None:
         """Records an exclusion event for a given stimulus."""
         self.session.event_log.record(

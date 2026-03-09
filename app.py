@@ -27,7 +27,7 @@ class App:
     POLL_INTERVAL_S = 0.010  # 10 ms polling interval
 
     def __init__(self, config: Optional[SessionConfig] = None,
-                 output_base_dir: str = "output"):
+                 output_base_dir: str = "Data"):
         self._config          = config
         self._output_base_dir = output_base_dir
         self._session:         Optional[Session] = None
@@ -53,19 +53,48 @@ class App:
         trigger : CompositeTrigger | None
             Optional hardware trigger backend forwarded to the event log.
         """
+        import uuid as _uuid
+        session_id = str(_uuid.uuid4())
+
         file_manager = FileManager(self._output_base_dir)
         csv_path = file_manager.get_csv_path(
             self._config.patient_id,
             self._config.session_date,
             self._config.test_type,
             self._config.session_start_time,
+            contact=self._config.contact,
+            intensity_mA=self._config.stim_intensity_mA,
+            duration_s=self._config.stim_duration_s,
         )
         file_manager.ensure_dirs(csv_path)
 
-        clock     = Clock()
-        event_log = PersistentEventLog(clock, csv_path, trigger=trigger)
-        self._session  = Session(self._config, event_log, clock)
+        clock    = Clock()
+        metadata = self._build_csv_metadata(session_id)
+        event_log = PersistentEventLog(clock, csv_path, trigger=trigger, metadata=metadata)
+        self._session  = Session(self._config, event_log, clock, session_id=session_id)
         self._csv_path = csv_path
+
+    def _build_csv_metadata(self, session_id: str) -> dict:
+        """Build the ordered metadata dict written as #-prefixed lines in the CSV."""
+        c = self._config
+        return {
+            "SessionID":               session_id,
+            "SoftwareVersion":         c.software_version,
+            "PatientID":               c.patient_id,
+            "SessionDate":             c.session_date.isoformat(),
+            "SessionStartTime":        c.session_start_time.isoformat(),
+            "TestType":                c.test_type,
+            "Electrode":               c.electrode,
+            "Contact":                 c.contact,
+            "StimulationIntensity_mA": c.stim_intensity_mA,
+            "StimulationDuration_s":   c.stim_duration_s,
+            "ProgressionMode":         c.progression_mode.value,
+            "StimSignalKey":           c.stim_signal_key,
+            "ScreenWidth_px":          c.screen_width_px,
+            "ScreenHeight_px":         c.screen_height_px,
+            "StimuliIncluded":         ";".join(c.stimuli_included),
+            "StimuliExcluded":         ";".join(c.stimuli_excluded),
+        }
 
     def write_session_metadata(self, stim_set, counterbalancing_report=None) -> None:
         """Write session_metadata.json sidecar.  Call after setup() and session.start()."""

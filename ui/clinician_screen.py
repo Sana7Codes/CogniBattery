@@ -107,6 +107,7 @@ class ClinicianView(BoxLayout):
         self._session_screen.on_advance(self._kivy_app._on_advance)
         self._session_screen.on_skip(self._kivy_app._on_skip)
         self._session_screen.on_exclude(self._kivy_app._on_exclude_stimulus)
+        self._session_screen.on_replace(self._kivy_app._on_replace_stimulus)
         self.add_widget(self._session_screen)
 
     # ------------------------------------------------------------------

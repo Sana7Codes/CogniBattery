@@ -65,8 +65,10 @@ class ConfigScreen(BoxLayout):
         # State
         self._selected_test_type: str          = TEST_TYPES[0]
         self._progression_mode: ProgressionMode = ProgressionMode.CLINICIAN_ACTION
-        self._stim_checkboxes: dict            = {}   # stim_id → CheckBox
+        self._stim_checkboxes: dict            = {}   # stim_id → CheckBox (include)
+        self._familiarity_checkboxes: dict     = {}   # stim_id → CheckBox (familiar)
         self._stim_ids: list                   = []   # ordered list
+        self._randomize: bool                  = False
 
         _bg(self, BG_COLOR)
 
@@ -202,6 +204,15 @@ class ConfigScreen(BoxLayout):
         self._timer_row.opacity = 0
         card.add_widget(self._timer_row)
 
+        # Randomize order
+        rand_row = BoxLayout(orientation="horizontal", size_hint_y=None,
+                             height=dp(30), spacing=dp(8))
+        self._chk_randomize = CheckBox(size_hint=(None, None), size=(dp(24), dp(24)))
+        self._chk_randomize.bind(active=lambda inst, val: setattr(self, "_randomize", val))
+        rand_row.add_widget(self._chk_randomize)
+        rand_row.add_widget(lbl("Ordre aléatoire", size=FONT_SM, color=TEXT_DARK))
+        card.add_widget(rand_row)
+
         # Progression mode radios
         card.add_widget(lbl("Mode de progression", size=FONT_SM, color=TEXT_MID,
                             size_hint_y=None, height=dp(24)))
@@ -311,18 +322,32 @@ class ConfigScreen(BoxLayout):
 
         stimuli = list(lib._stimuli.values()) if lib._stimuli else []
         self._stim_ids = [s.stimulus_id for s in stimuli]
+        self._familiarity_checkboxes.clear()
+        is_famous_face = (test_type == "FamousFace")
 
         for stim in stimuli:
             row = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(30),
                             spacing=dp(8))
+
             chk = CheckBox(size_hint=(None, None), size=(dp(24), dp(24)))
             chk.active = True
             chk.bind(active=lambda *_: self._update_stim_count())
             self._stim_checkboxes[stim.stimulus_id] = chk
             row.add_widget(chk)
+
             row.add_widget(lbl(stim.stimulus_id, size=FONT_SM, color=TEXT_DARK,
                                halign="left", valign="middle",
                                text_size=(None, None)))
+
+            if is_famous_face:
+                fam_chk = CheckBox(size_hint=(None, None), size=(dp(24), dp(24)))
+                fam_chk.active = stim.is_familiar is not False  # default familiar
+                fam_chk.bind(active=lambda *_: self._update_stim_count())
+                self._familiarity_checkboxes[stim.stimulus_id] = fam_chk
+                row.add_widget(lbl("Familier", size=FONT_XS, color=TEXT_MID,
+                                   size_hint_x=None, width=dp(50)))
+                row.add_widget(fam_chk)
+
             self._stim_list.add_widget(row)
 
         if not stimuli:
@@ -440,8 +465,18 @@ class ConfigScreen(BoxLayout):
         popup.open()
 
     def _do_start(self) -> None:
-        included = [sid for sid, chk in self._stim_checkboxes.items() if chk.active]
-        excluded = [sid for sid, chk in self._stim_checkboxes.items() if not chk.active]
+        # Exclude unchecked stimuli AND (for FamousFace) non-familiar ones
+        non_familiar = {
+            sid for sid, chk in self._familiarity_checkboxes.items() if not chk.active
+        }
+        included = [
+            sid for sid, chk in self._stim_checkboxes.items()
+            if chk.active and sid not in non_familiar
+        ]
+        excluded = [
+            sid for sid, chk in self._stim_checkboxes.items()
+            if not chk.active or sid in non_familiar
+        ]
 
         timer_s: Optional[float] = None
         if self._progression_mode == ProgressionMode.TIMER:
@@ -480,6 +515,7 @@ class ConfigScreen(BoxLayout):
             software_version   = "1.0.0",
             stimuli_included   = included,
             stimuli_excluded   = excluded,
+            randomize_order    = self._randomize,
         )
 
         # Build StimulusSet from selected IDs
@@ -510,7 +546,7 @@ class ConfigScreen(BoxLayout):
             ))
 
         stim_set = lib.build_set(
-            randomize=False,
+            randomize=self._randomize,
             included=included if included else None,
         )
 

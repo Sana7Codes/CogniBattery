@@ -37,9 +37,10 @@ class SessionConfig:
 
 
 class Session:
-    def __init__(self, config: SessionConfig, event_log: PersistentEventLog, clock: Clock):
+    def __init__(self, config: SessionConfig, event_log: PersistentEventLog, clock: Clock,
+                 session_id: Optional[str] = None):
         self.config = config
-        self.session_id = str(uuid.uuid4())
+        self.session_id = session_id or str(uuid.uuid4())
         self.clock = clock
         self.event_log = event_log
         self.current_trial: int = 0

@@ -46,6 +46,15 @@ class StimulusSet:
     def advance(self) -> None:
         self._index += 1
 
+    def replace_current(self, new_stimulus: "Stimulus") -> None:
+        """Swap the current (not-yet-responded) stimulus in place."""
+        if self._index < len(self._stimuli):
+            self._stimuli[self._index] = new_stimulus
+
+    def get_remaining(self) -> list:
+        """Return stimuli not yet presented, excluding the current one."""
+        return self._stimuli[self._index + 1:]
+
     def __len__(self) -> int:
         return len(self._stimuli)
 

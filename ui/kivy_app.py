@@ -157,7 +157,7 @@ class KivyApp(KivyBaseApp):
         File I/O runs on a background thread to avoid blocking the UI."""
         import os
         from core.recovery import find_incomplete_sessions
-        output_dir = os.path.join(self._base_dir, "output")
+        output_dir = os.path.join(self._base_dir, "Data")
 
         def _scan():
             try:
@@ -260,7 +260,7 @@ class KivyApp(KivyBaseApp):
         def _setup():
             try:
                 domain_app = App(config, output_base_dir=os.path.join(
-                    self._base_dir, "output"
+                    self._base_dir, "Data"
                 ))
                 clock     = Clock()
                 trigger   = self.trigger if self.trigger.is_active else None
@@ -302,7 +302,7 @@ class KivyApp(KivyBaseApp):
         def _setup():
             try:
                 domain_app = App(config, output_base_dir=os.path.join(
-                    self._base_dir, "output"
+                    self._base_dir, "Data"
                 ))
                 domain_app.setup(
                     trigger=self.trigger if self.trigger.is_active else None
@@ -468,6 +468,59 @@ class KivyApp(KivyBaseApp):
         try:
             self._task.skip_trial()
             self._start_next_or_end()
+        except Exception as exc:
+            self._domain_app._session.error(exc)
+            self._clinician_view.show_error(str(exc))
+
+    def _on_replace_stimulus(self, reason: str = "") -> None:
+        if self._task is None:
+            return
+        candidates = self._task.stimulus_set.get_remaining()
+        if not candidates:
+            self._clinician_view.show_error("Aucun stimulus de remplacement disponible.")
+            return
+        self._show_replace_popup(candidates, reason)
+
+    def _show_replace_popup(self, candidates: list, reason: str) -> None:
+        from kivy.uix.popup import Popup
+        from kivy.uix.button import Button
+        from kivy.uix.label import Label
+        from kivy.uix.scrollview import ScrollView
+        from kivy.metrics import dp
+
+        content = BoxLayout(orientation="vertical", padding=dp(10), spacing=dp(8))
+        content.add_widget(Label(text="Choisir un stimulus de remplacement :",
+                                 size_hint_y=None, height=dp(30), color=(1, 1, 1, 1)))
+
+        scroll = ScrollView(size_hint=(1, 1))
+        btn_list = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(4))
+        btn_list.bind(minimum_height=btn_list.setter("height"))
+
+        popup = Popup(title="Remplacer le stimulus", content=content,
+                      size_hint=(0.5, 0.60))
+
+        for stim in candidates:
+            b = Button(text=stim.stimulus_id, size_hint_y=None, height=dp(40),
+                       background_normal="", background_color=(0.20, 0.50, 0.80, 1))
+            def _pick(instance, s=stim):
+                popup.dismiss()
+                self._do_replace(s, reason)
+            b.bind(on_press=_pick)
+            btn_list.add_widget(b)
+
+        scroll.add_widget(btn_list)
+        content.add_widget(scroll)
+
+        cancel = Button(text="Annuler", size_hint_y=None, height=dp(44))
+        cancel.bind(on_press=popup.dismiss)
+        content.add_widget(cancel)
+        popup.open()
+
+    def _do_replace(self, new_stimulus, reason: str = "") -> None:
+        try:
+            self._task.replace_stimulus(new_stimulus, reason)
+            self._patient_screen.show_stimulus(new_stimulus, self._images_base)
+            self._clinician_view.update_session(self._build_state())
         except Exception as exc:
             self._domain_app._session.error(exc)
             self._clinician_view.show_error(str(exc))

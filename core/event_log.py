@@ -49,12 +49,17 @@ class Event:
 class _CsvAppendWriter:
     """Internal helper: opens a CSV in append mode and fsyncs after every row."""
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, metadata: dict = None):
         self._path = path
         is_new = not os.path.exists(path) or os.path.getsize(path) == 0
         self._file = open(path, "a", newline="", encoding="utf-8")
         self._writer = csv.writer(self._file)
         if is_new:
+            if metadata:
+                for key, value in metadata.items():
+                    self._file.write(f"# {key},{value}\n")
+                self._file.flush()
+                os.fsync(self._file.fileno())
             self._writer.writerow(CSV_COLUMNS)
             self._file.flush()
             os.fsync(self._file.fileno())
@@ -90,9 +95,9 @@ class PersistentEventLog:
     method (e.g. CompositeTrigger).  Called synchronously after each write.
     """
 
-    def __init__(self, clock: Clock, csv_path: str, trigger=None):
+    def __init__(self, clock: Clock, csv_path: str, trigger=None, metadata: dict = None):
         self._clock      = clock
-        self._csv_writer = _CsvAppendWriter(csv_path)
+        self._csv_writer = _CsvAppendWriter(csv_path, metadata=metadata)
         self._cache: list[Event] = []
         self._image_on_times: dict[int, float] = {}  # essai -> time_s
         self._trigger    = trigger  # optional CompositeTrigger

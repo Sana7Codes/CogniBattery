@@ -55,6 +55,7 @@ class SessionScreen(BoxLayout):
         self._on_end_cb:      Optional[Callable] = None
         self._on_skip_cb:     Optional[Callable] = None
         self._on_exclude_cb:  Optional[Callable] = None
+        self._on_replace_cb:  Optional[Callable] = None
         self._on_advance_cb:  Optional[Callable] = None
 
         self._build_top_bar()
@@ -229,6 +230,13 @@ class SessionScreen(BoxLayout):
             size_hint_x=1,
         )
         ctrl_card.add_widget(self._btn_exclude)
+
+        self._btn_replace = btn_ghost(
+            "Remplacer ce stimulus",
+            callback=self._fire_replace,
+            size_hint_x=1,
+        )
+        ctrl_card.add_widget(self._btn_replace)
         right.add_widget(ctrl_card)
 
         return right
@@ -320,6 +328,9 @@ class SessionScreen(BoxLayout):
     def on_exclude(self, cb: Callable) -> None:
         self._on_exclude_cb = cb
 
+    def on_replace(self, cb: Callable) -> None:
+        self._on_replace_cb = cb
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -381,6 +392,33 @@ class SessionScreen(BoxLayout):
             popup.dismiss()
             if self._on_exclude_cb:
                 self._on_exclude_cb(reason_inp.text.strip())
+
+        btn_ok.bind(on_press=_do)
+        btn_no.bind(on_press=popup.dismiss)
+        popup.open()
+
+    def _fire_replace(self) -> None:
+        from kivy.uix.textinput import TextInput
+        from kivy.uix.button import Button
+        from kivy.uix.popup import Popup
+        content = BoxLayout(orientation="vertical", padding=dp(10), spacing=dp(10))
+        reason_inp = TextInput(hint_text="Raison du remplacement...", multiline=False,
+                               size_hint_y=None, height=dp(40))
+        content.add_widget(reason_inp)
+        row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
+        btn_ok = Button(text="Choisir remplacement",
+                        background_color=(0.20, 0.50, 0.80, 1))
+        btn_no = Button(text="Annuler")
+        row.add_widget(btn_ok)
+        row.add_widget(btn_no)
+        content.add_widget(row)
+        popup = Popup(title="Remplacer le stimulus", content=content,
+                      size_hint=(0.5, 0.35))
+
+        def _do(*_):
+            popup.dismiss()
+            if self._on_replace_cb:
+                self._on_replace_cb(reason_inp.text.strip())
 
         btn_ok.bind(on_press=_do)
         btn_no.bind(on_press=popup.dismiss)
