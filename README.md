@@ -2,10 +2,10 @@
 
 ### Clinical-grade cognitive testing platform for intraoperative and neuropsychological research
 
-<<<<<<< HEAD
+
 =======
 
->>>>>>> 8b7f05694aaae6067ac0fffd6ed5011f9b175fa5
+
 ![Python](https://img.shields.io/badge/Python-3.10+-blue)
 ![Kivy](https://img.shields.io/badge/UI-Kivy-green)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
@@ -39,7 +39,7 @@ Every stimulus event, response, stimulation trigger, and error is written synchr
 =======
 CogniBattery delivers a dual-screen stimulus presentation suite with crash-safe event logging, hardware trigger support, and a clean clinician interface - purpose-built for demanding clinical and research environments.
 
->>>>>>> 8b7f05694aaae6067ac0fffd6ed5011f9b175fa5
+
 
 ---
 
