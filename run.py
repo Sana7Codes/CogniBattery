@@ -1,0 +1,267 @@
+"""
+Battery — clinical cognitive testing application.
+Entry point.
+
+Usage examples:
+  python run.py --mock --single-screen --no-fullscreen --task MUF_V1 --patient TEST
+  python run.py --no-mock --task FFP_V1 --patient 023
+  python run.py --mock --task DI_SEEG --patient TEST
+"""
+
+from __future__ import annotations
+
+import argparse
+import multiprocessing
+import sys
+from datetime import datetime
+from pathlib import Path
+
+# ── Error log must be the very first import after stdlib ─────────────────────
+import core.error_log as _err_module
+# Session ID for the error log (before Session object exists)
+_early_session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+_err_module.init_error_log(_early_session_id)
+
+import config
+from core.error_log import log_error, log_info, log_warning
+from core.session import Session
+from core.stimulus import Stimulus, StimulusSet
+from core.event_log import Event, EventType
+from data.session_writer import resolve_csv_path, build_metadata, write_summary
+from hardware.micromed import make_trigger
+from hardware.eyelink import make_eyelink
+from tasks.csv_loader import task_folder, TASK_FOLDERS
+from tasks.famous_face import FamousFaceTask
+from tasks.semantic_matching import SemanticMatchingTask
+from tasks.unknown_face import UnknownFaceTask
+
+
+# ── Task class registry ───────────────────────────────────────────────────────
+
+def _get_task_class(task_code: str):
+    pointing   = {"FFP_V1", "FFP_V2", "FNP"}
+    matching   = {"MUF_V1", "MUF_V2", "ASM_MOTS", "ASM_SEEG"}
+    verbal     = {"DI_SEEG"}
+    if task_code in pointing:
+        return FamousFaceTask
+    if task_code in matching:
+        return SemanticMatchingTask
+    if task_code in verbal:
+        return SemanticMatchingTask  # verbal: correctness marked by clinician
+    return SemanticMatchingTask
+
+
+# ── Argument parsing ──────────────────────────────────────────────────────────
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Battery — Clinical Cognitive Testing")
+    p.add_argument("--mock",          action="store_true", default=True,
+                   help="Mock hardware (default ON)")
+    p.add_argument("--no-mock",       dest="mock", action="store_false",
+                   help="Use real hardware (Micromed TTL)")
+    p.add_argument("--single-screen", action="store_true",
+                   help="Both windows on screen 0 (laptop testing)")
+    p.add_argument("--no-fullscreen", dest="fullscreen", action="store_false",
+                   default=True, help="Windowed mode (laptop testing)")
+    p.add_argument("--task",    default=None, help="Task code (e.g. MUF_V1)")
+    p.add_argument("--patient", default="TEST", help="Patient ID")
+    return p.parse_args()
+
+
+# ── Clinician subprocess launcher ─────────────────────────────────────────────
+
+def _launch_clinician(
+    from_patient_q,
+    to_patient_q,
+    session: Session,
+) -> multiprocessing.Process:
+    from ui.clinician_window import run_clinician_process
+    p = session.current_stim_params
+    proc = multiprocessing.Process(
+        target=run_clinician_process,
+        args=(
+            from_patient_q,
+            to_patient_q,
+            session.task_code,
+            session.task_display_name,
+            session.progression_mode,
+            session.stim_key,
+            p.electrode,
+            p.contact,
+            p.intensity_ma,
+            p.duration_s,
+        ),
+        daemon=True,
+        name="ClinicianWindow",
+    )
+    proc.start()
+    return proc
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
+def main() -> None:
+    args = parse_args()
+
+    # Apply global config overrides
+    config.MOCK_HARDWARE = args.mock
+
+    log_info(
+        f"Battery starting. mock={args.mock} single_screen={args.single_screen} "
+        f"fullscreen={args.fullscreen} task={args.task} patient={args.patient}"
+    )
+
+    # ── Session setup form ────────────────────────────────────────────────────
+    presets = {}
+    if args.task:
+        presets["task_code"] = args.task
+    if args.patient:
+        presets["patient_id"] = args.patient
+
+    from ui.setup_form import SetupForm
+    form = SetupForm(presets=presets)
+    cfg  = form.run()
+
+    if cfg is None:
+        log_info("Setup form cancelled — exiting.")
+        sys.exit(0)
+
+    log_info(f"Setup complete: {cfg['patient_id']} / {cfg['task_code']}")
+
+    # ── Build Session ─────────────────────────────────────────────────────────
+    session = Session(
+        patient_id        = cfg["patient_id"],
+        task_code         = cfg["task_code"],
+        task_display_name = cfg["task_display_name"],
+        electrode         = cfg["electrode"],
+        contact           = cfg["contact"],
+        intensity_ma      = cfg["intensity_ma"],
+        duration_s        = cfg["duration_s"],
+        progression_mode  = cfg["progression_mode"],
+        timer_delay_s     = cfg["timer_delay_s"],
+        stim_key          = cfg["stim_key"],
+        stimuli_order     = cfg["order"],
+    )
+
+    # ── Build StimulusSet ────────────────────────────────────────────────────
+    selected_stimuli: list[Stimulus] = cfg["selected_stimuli"]
+    stimulus_set = StimulusSet(selected_stimuli, order=cfg["order"])
+
+    # ── Build task object ─────────────────────────────────────────────────────
+    task_class = _get_task_class(cfg["task_code"])
+    task = task_class(session, stimulus_set)
+    cb_notes = task.counterbalance_notes
+    log_info(f"Counterbalance: {cb_notes}")
+
+    # ── Resolve CSV path and init EventLog ───────────────────────────────────
+    session.start()   # t=0 from here
+    csv_path = resolve_csv_path(session)
+
+    metadata = build_metadata(session, stimulus_set, cb_notes)
+    # Add excluded from pre-check
+    if cfg.get("excluded_ids"):
+        metadata["StimuliExcluded"] += (
+            " | PreCheck:" + " ".join(cfg["excluded_ids"])
+        )
+
+    if config.MOCK_HARDWARE:
+        from core.event_log import MockEventLog
+        event_log = MockEventLog(metadata, csv_path)
+    else:
+        from core.event_log import EventLog
+        event_log = EventLog(metadata, csv_path)
+
+    # Log SESSION_START
+    p = session.current_stim_params
+    event_log.log(Event(
+        time_s   = session.now(),
+        time_iso = session.now_iso(),
+        event    = EventType.SESSION_START,
+        notes    = (
+            f"SessionID={session.session_id} "
+            f"PatientID={session.patient_id} "
+            f"Task={session.task_code} "
+            f"Electrode={p.electrode} Contact={p.contact} "
+            f"Intensity={p.intensity_ma}mA Duration={p.duration_s}s "
+            f"Mode={session.progression_mode} "
+            f"Version={config.SOFTWARE_VERSION}"
+        ),
+    ))
+
+    # ── Hardware ──────────────────────────────────────────────────────────────
+    trigger = make_trigger(mock=args.mock)
+    eyelink = make_eyelink(mock=args.mock)
+
+    # ── Launch clinician window subprocess ────────────────────────────────────
+    to_clin_q   = multiprocessing.Queue()   # patient → clinician
+    from_clin_q = multiprocessing.Queue()   # clinician → patient
+
+    clin_proc = _launch_clinician(to_clin_q, from_clin_q, session)
+
+    # ── Determine screen / fullscreen settings ────────────────────────────────
+    patient_screen = 0 if args.single_screen else config.PATIENT_SCREEN
+    use_fullscreen = args.fullscreen
+
+    # ── Run trial loop (PsychoPy, main thread) ────────────────────────────────
+    try:
+        from ui.patient_window import run_session
+        result = run_session(
+            session      = session,
+            stimulus_set = stimulus_set,
+            event_log    = event_log,
+            trigger      = trigger,
+            task         = task,
+            to_clin_q    = to_clin_q,
+            from_clin_q  = from_clin_q,
+            screen       = patient_screen,
+            fullscreen   = use_fullscreen,
+        )
+        n_total, n_correct = result if result else (0, 0)
+
+    except Exception as exc:
+        log_error("Unhandled exception in trial loop", exc)
+        n_total, n_correct = 0, 0
+    finally:
+        # ── Write final CSV ───────────────────────────────────────────────────
+        try:
+            event_log.close()
+            # Write a clean copy at the resolved path (incremental file is same path)
+            log_info(f"Session CSV: {csv_path}")
+
+            # Write summary
+            summary_path = write_summary(
+                session    = session,
+                event_log  = event_log,
+                n_trials   = n_total,
+                n_correct  = n_correct,
+                n_skipped  = stimulus_set.n_skipped,
+            )
+            log_info(f"Summary CSV: {summary_path}")
+
+            # Notify clinician window
+            to_clin_q.put_nowait({
+                "type":     "session_end",
+                "csv_path": str(csv_path),
+            })
+
+        except Exception as exc:
+            log_error("Error during session cleanup", exc)
+
+        # ── Hardware shutdown ─────────────────────────────────────────────────
+        try:
+            trigger.close()
+            eyelink.disconnect()
+        except Exception:
+            pass
+
+        # Give clinician window a moment to show the end message
+        import time
+        time.sleep(2)
+        clin_proc.terminate()
+
+    log_info("Battery exiting.")
+
+
+if __name__ == "__main__":
+    multiprocessing.set_start_method("spawn", force=True)
+    main()

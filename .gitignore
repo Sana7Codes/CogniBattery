@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+batteryenv/
+logs/
+data/Patient_*/
+stimuli_raw/
+"Tests Stimulation/"
+*.zip
