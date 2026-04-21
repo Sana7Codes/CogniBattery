@@ -14,7 +14,6 @@ import argparse
 import csv as _csv_mod
 import datetime as _dt_mod
 import multiprocessing
-import queue as _queue_mod
 import sys
 import time as _time_mod
 from datetime import datetime
@@ -22,7 +21,6 @@ from pathlib import Path
 
 # ── Error log must be the very first import after stdlib ─────────────────────
 import core.error_log as _err_module
-# Session ID for the error log (before Session object exists)
 _early_session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 _err_module.init_error_log(_early_session_id)
 
@@ -51,7 +49,7 @@ def _get_task_class(task_code: str):
     if task_code in matching:
         return SemanticMatchingTask
     if task_code in verbal:
-        return SemanticMatchingTask  # verbal: correctness marked by clinician
+        return SemanticMatchingTask
     return SemanticMatchingTask
 
 
@@ -108,8 +106,7 @@ def _launch_clinician(
 
 def _emergency_save(session, event_log, csv_path, stimulus_set,
                     n_total, n_correct, to_clin_q) -> None:
-    """Closes the event log, saves files, and notifies the clinician.
-    Used when the patient window crashed or the finalize timeout fires."""
+    """Closes the event log, saves files, and notifies the clinician."""
     try:
         event_log.close()
     except Exception as exc:
@@ -175,36 +172,14 @@ def _emergency_save(session, event_log, csv_path, stimulus_set,
         log_error("emergency_save: notify clinician failed", exc)
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# ── Single-session runner ─────────────────────────────────────────────────────
 
-def main() -> None:
-    args = parse_args()
-
-    # Apply global config overrides
-    config.MOCK_HARDWARE = args.mock
-
-    log_info(
-        f"Battery starting. mock={args.mock} single_screen={args.single_screen} "
-        f"fullscreen={args.fullscreen} task={args.task} patient={args.patient}"
-    )
-
-    # ── Session setup form ────────────────────────────────────────────────────
-    presets = {}
-    if args.task:
-        presets["task_code"] = args.task
-    if args.patient:
-        presets["patient_id"] = args.patient
-
-    from ui.setup_form import SetupForm
-    form = SetupForm(presets=presets)
-    cfg  = form.run()
-
-    if cfg is None:
-        log_info("Setup form cancelled — exiting.")
-        sys.exit(0)
-
-    log_info(f"Setup complete: {cfg['patient_id']} / {cfg['task_code']}")
-
+def _run_one_session(cfg: dict, args, trigger, eyelink) -> dict:
+    """
+    Run one complete session.
+    Hardware (trigger, eyelink) are reused from the caller and NOT closed here.
+    Returns a dict with session info for the next setup form banner.
+    """
     # ── Build Session ─────────────────────────────────────────────────────────
     session = Session(
         patient_id        = cfg["patient_id"],
@@ -220,22 +195,18 @@ def main() -> None:
         stimuli_order     = cfg["order"],
     )
 
-    # ── Build StimulusSet ────────────────────────────────────────────────────
     selected_stimuli: list[Stimulus] = cfg["selected_stimuli"]
     stimulus_set = StimulusSet(selected_stimuli, order=cfg["order"])
 
-    # ── Build task object ─────────────────────────────────────────────────────
     task_class = _get_task_class(cfg["task_code"])
     task = task_class(session, stimulus_set)
     cb_notes = task.counterbalance_notes
     log_info(f"Counterbalance: {cb_notes}")
 
-    # ── Resolve CSV path and init EventLog ───────────────────────────────────
-    session.start()   # t=0 from here
+    session.start()
     csv_path = resolve_csv_path(session)
 
     metadata = build_metadata(session, stimulus_set, cb_notes)
-    # Add excluded from pre-check
     if cfg.get("excluded_ids"):
         metadata["StimuliExcluded"] += (
             " | PreCheck:" + " ".join(cfg["excluded_ids"])
@@ -248,7 +219,6 @@ def main() -> None:
         from core.event_log import EventLog
         event_log = EventLog(metadata, csv_path)
 
-    # Log SESSION_START
     p = session.current_stim_params
     event_log.log(Event(
         time_s   = session.now(),
@@ -265,21 +235,15 @@ def main() -> None:
         ),
     ))
 
-    # ── Hardware ──────────────────────────────────────────────────────────────
-    trigger = make_trigger(mock=args.mock)
-    eyelink = make_eyelink(mock=args.mock)
-
     # ── Launch clinician window subprocess ────────────────────────────────────
-    to_clin_q   = multiprocessing.Queue()   # patient → clinician
-    from_clin_q = multiprocessing.Queue()   # clinician → patient
-
+    to_clin_q   = multiprocessing.Queue()
+    from_clin_q = multiprocessing.Queue()
     clin_proc = _launch_clinician(to_clin_q, from_clin_q, session, mock=args.mock)
 
-    # ── Determine screen / fullscreen settings ────────────────────────────────
     patient_screen = 0 if args.single_screen else config.PATIENT_SCREEN
     use_fullscreen = args.fullscreen
 
-    # ── Run trial loop (PsychoPy, main thread) ────────────────────────────────
+    n_total, n_correct = 0, 0
     try:
         from ui.patient_window import run_session
         result = run_session(
@@ -300,16 +264,8 @@ def main() -> None:
         log_error("Unhandled exception in trial loop", exc)
         n_total, n_correct = 0, 0
     finally:
-        # ── Hardware shutdown (always first) ──────────────────────────────────
-        try:
-            trigger.close()
-            eyelink.disconnect()
-        except Exception:
-            pass
-
         # ── Finalization ───────────────────────────────────────────────────────
         if not getattr(session, "finalized", False):
-            # Patient window crashed — emergency save
             print("[END] safety-net — patient_window crashed, emergency finalization")
             _emergency_save(
                 session, event_log, csv_path, stimulus_set,
@@ -317,11 +273,9 @@ def main() -> None:
             )
 
         elif getattr(session, "was_aborted", False):
-            # Abort: patient_window already saved and sent session_end — nothing to do
             print("[END] session was aborted — finalization done in patient_window")
 
         else:
-            # Natural end: wait for clinician's notes + save/abandon decision
             print("[END] natural end — waiting for clinician finalize decision (up to 10 min)")
             _msg = None
             _deadline = _time_mod.monotonic() + 600
@@ -330,13 +284,12 @@ def main() -> None:
                     _msg = from_clin_q.get(timeout=2.0)
                     if _msg.get("type") in ("finalize_save", "finalize_abandon"):
                         break
-                    _msg = None   # other messages during wait — discard
+                    _msg = None
                 except Exception:
                     pass
 
             if _msg and _msg.get("type") == "finalize_save":
                 notes = _msg.get("notes", "").strip()
-                # Append notes row to CSV if provided
                 if notes and Path(csv_path).exists():
                     try:
                         _now = _dt_mod.datetime.now()
@@ -393,26 +346,100 @@ def main() -> None:
                 to_clin_q.put_nowait({"type": "session_abandoned"})
 
             else:
-                # Timeout — emergency save without notes
                 log_error("Finalize decision timeout — auto-saving", None)
                 _emergency_save(
                     session, event_log, csv_path, stimulus_set,
                     n_total, n_correct, to_clin_q,
                 )
 
-        # Wait for clinician to close, then force-quit
-        clin_proc.join(timeout=30)
+        clin_proc.join(timeout=10)
         if clin_proc.is_alive():
             clin_proc.terminate()
             clin_proc.join()
 
-        # Release queue resources
         for _q in (to_clin_q, from_clin_q):
             try:
                 _q.cancel_join_thread()
                 _q.close()
             except Exception:
                 pass
+
+    p = session.current_stim_params
+    return {
+        "patient_id":        session.patient_id,
+        "electrode":         p.electrode,
+        "contact":           p.contact,
+        "intensity_ma":      p.intensity_ma,
+        "duration_s":        p.duration_s,
+        "task_display_name": session.task_display_name,
+        "n_total":           n_total,
+        "n_correct":         n_correct,
+        "csv_path":          str(csv_path),
+    }
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
+def main() -> None:
+    args = parse_args()
+    config.MOCK_HARDWARE = args.mock
+
+    log_info(
+        f"Battery starting. mock={args.mock} single_screen={args.single_screen} "
+        f"fullscreen={args.fullscreen} task={args.task} patient={args.patient}"
+    )
+
+    # CLI presets applied only to the first session
+    cli_presets: dict = {}
+    if args.task:
+        cli_presets["task_code"] = args.task
+    if args.patient:
+        cli_presets["patient_id"] = args.patient
+
+    # Hardware created once and kept alive across all sessions
+    trigger = make_trigger(mock=args.mock)
+    eyelink = make_eyelink(mock=args.mock)
+
+    prev_session_info: dict | None = None
+
+    try:
+        while True:
+            # Build form presets: start from CLI args, overlay previous-session
+            # hardware params (but not task_code — clinician picks a new task).
+            presets = dict(cli_presets)
+            if prev_session_info is not None:
+                presets.setdefault("patient_id", prev_session_info["patient_id"])
+                presets["electrode"] = prev_session_info["electrode"]
+                presets["contact"]   = prev_session_info["contact"]
+                presets["intensity"] = str(prev_session_info["intensity_ma"])
+                presets["duration"]  = str(prev_session_info["duration_s"])
+                presets.pop("task_code", None)
+
+            from ui.setup_form import SetupForm
+            form = SetupForm(presets=presets, prev_session_info=prev_session_info)
+            cfg  = form.run()
+
+            if cfg is None:
+                log_info("Setup form: clinician quit — exiting.")
+                break
+
+            log_info(f"Setup complete: {cfg['patient_id']} / {cfg['task_code']}")
+
+            try:
+                prev_session_info = _run_one_session(cfg, args, trigger, eyelink)
+            except Exception as exc:
+                log_error("Session crashed — returning to setup form", exc)
+                # prev_session_info unchanged; loop continues
+
+            # Clear the one-time CLI task preset after the first session
+            cli_presets.pop("task_code", None)
+
+    finally:
+        try:
+            trigger.close()
+            eyelink.disconnect()
+        except Exception:
+            pass
 
     log_info("Battery exiting.")
 

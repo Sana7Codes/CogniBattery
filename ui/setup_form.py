@@ -15,7 +15,7 @@ import random
 import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, messagebox
-from typing import Optional
+from typing import Optional, Any
 
 from tasks.csv_loader import load_trials, task_folder, TASK_FOLDERS
 from core.stimulus import Stimulus
@@ -44,9 +44,14 @@ class SetupForm:
     Call run() to show it; returns config dict when complete or None if cancelled.
     """
 
-    def __init__(self, presets: dict | None = None) -> None:
+    def __init__(
+        self,
+        presets: dict | None = None,
+        prev_session_info: dict | None = None,
+    ) -> None:
         self.result: dict | None = None
         self._presets = presets or {}
+        self._prev_session_info = prev_session_info
         self._time_confirmed = False
         self._stim_vars: dict[str, tk.BooleanVar] = {}   # planche_id → BooleanVar
         self._stim_rows: list[dict] = []                  # raw trials.csv rows
@@ -57,6 +62,8 @@ class SetupForm:
         self._familiarity_excluded_ids: list[str] = []
 
         self._root: tk.Tk | None = None
+        self._banner_frame: tk.Frame | None = None
+        self._banner_prev_patient: str | None = None
 
     def run(self) -> dict | None:
         self._root = tk.Tk()
@@ -71,14 +78,43 @@ class SetupForm:
     def _build_ui(self) -> None:
         root = self._root
 
+        # ── Previous-session banner ───────────────────────────────────────────
+        psi = self._prev_session_info
+        if psi is not None:
+            self._banner_prev_patient = psi.get("patient_id", "")
+            stem  = Path(psi.get("csv_path", "")).stem or "—"
+            n     = psi.get("n_total", 0)
+            ok    = psi.get("n_correct", 0)
+            task  = psi.get("task_display_name", "—")
+
+            self._banner_frame = tk.Frame(
+                root, bg="#fffbe6", pady=8, padx=16, relief="groove", bd=1,
+            )
+            self._banner_frame.grid(row=0, column=0, columnspan=2,
+                                    sticky="ew", padx=8, pady=(8, 0))
+            tk.Label(
+                self._banner_frame,
+                text=f"Session précédente : {task} — {n} essais — {ok} corrects",
+                font=("Helvetica", 10, "bold"),
+                fg="#886600", bg="#fffbe6", anchor="w",
+            ).pack(fill="x")
+            tk.Label(
+                self._banner_frame,
+                text=f"Fichier : {stem}",
+                font=("Helvetica", 9),
+                fg="#886600", bg="#fffbe6", anchor="w",
+            ).pack(fill="x")
+
+        _content_row = 1 if self._banner_frame else 0
+
         # ── Left column: form fields ──────────────────────────────────────────
         left = ttk.Frame(root, padding=12)
-        left.grid(row=0, column=0, sticky="nsew")
+        left.grid(row=_content_row, column=0, sticky="nsew")
 
         # Patient ID
         ttk.Label(left, text="Patient ID *").grid(row=0, column=0, sticky="w")
         self._patient_id = tk.StringVar(value=self._presets.get("patient_id", ""))
-        self._patient_id.trace_add("write", lambda *_: self._update_start_state())
+        self._patient_id.trace_add("write", self._on_patient_id_changed)
         ttk.Entry(left, textvariable=self._patient_id, width=20).grid(row=0, column=1, sticky="w", pady=2)
 
         # Date/time
@@ -190,9 +226,13 @@ class SetupForm:
         self._status_label = ttk.Label(left, text="⚠ Confirmez l'heure pour continuer.", foreground="orange")
         self._status_label.grid(row=16, column=0, columnspan=2)
 
+        ttk.Button(
+            left, text="Quitter", command=self._on_quit,
+        ).grid(row=17, column=0, columnspan=2, pady=(12, 4))
+
         # ── Right column: stimulus list ───────────────────────────────────────
         right = ttk.LabelFrame(root, text="Stimuli", padding=8)
-        right.grid(row=0, column=1, sticky="nsew", padx=(0, 8), pady=8)
+        right.grid(row=_content_row, column=1, sticky="nsew", padx=(0, 8), pady=8)
 
         self._cb_label = ttk.Label(right, text="")
         self._cb_label.pack(anchor="w")
@@ -383,6 +423,18 @@ class SetupForm:
                 self._timer_entry.config(state="normal")
             else:
                 self._timer_entry.config(state="disabled")
+
+    def _on_patient_id_changed(self, *_) -> None:
+        self._update_start_state()
+        # Hide the previous-session banner once the patient ID differs
+        if (self._banner_frame is not None
+                and self._banner_prev_patient is not None
+                and self._patient_id.get() != self._banner_prev_patient):
+            self._banner_frame.grid_remove()
+
+    def _on_quit(self) -> None:
+        """Quitter button — return None to run.py, which exits the app."""
+        self._root.destroy()   # self.result stays None
 
     def _update_start_state(self) -> None:
         task_code = self._task_code.get()

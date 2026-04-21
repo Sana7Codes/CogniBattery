@@ -113,6 +113,7 @@ class ClinicianApp:
         self._tr_values: list[float] = []  # for TR moyen (item 6)
         self._remaining_stimuli: list[dict] = []
         self._session_ended: bool = False
+        self._session_active: bool = True
 
         # Banque de stimuli (item 11-12)
         self._all_stimuli: list[dict] = []   # {planche_id, path, label}
@@ -580,6 +581,7 @@ class ClinicianApp:
         elif t == "session_end_pending":
             # Natural end: show Finaliser dialog; run.py waits for save/abandon
             print("[END] clinician received session_end_pending — showing finalise dialog")
+            self._disable_all_controls()
             self._pending_end_msg = msg
             self._show_finalise_dialog(msg)
 
@@ -1197,7 +1199,24 @@ class ClinicianApp:
         if self._prog_mode == "ClinicianAction":
             self._send({"type": "next_trial"})
 
+    def _disable_all_controls(self) -> None:
+        self._session_active = False
+        for attr in ("_abort_btn", "_skip_btn", "_excl_btn", "_repl_btn", "_next_btn"):
+            btn = getattr(self, attr, None)
+            if btn:
+                try:
+                    btn.config(state="disabled")
+                except Exception:
+                    pass
+        if hasattr(self, "_mock_stim_btn"):
+            try:
+                self._mock_stim_btn.config(state="disabled")
+            except Exception:
+                pass
+
     def _cmd_abort(self) -> None:
+        if not self._session_active:
+            return
         # If the session already ended (end dialog showing), just close the root.
         if self._session_ended:
             self._root.destroy()
@@ -1247,16 +1266,14 @@ class ClinicianApp:
 
         if confirmed:
             print("[ABORT] step 1 — clinician confirmed abort")
+            self._disable_all_controls()
             self._send({"type": "abort_session"})
-            print("[ABORT] step 2 — abort_session sent to patient queue")
-            self._abort_btn.config(state="disabled", text="Arrêt en cours…")
-            self._skip_btn.config(state="disabled")
-            self._excl_btn.config(state="disabled")
-            self._repl_btn.config(state="disabled")
-            self._next_btn.config(state="disabled")
-            if hasattr(self, "_mock_stim_btn"):
-                self._mock_stim_btn.config(state="disabled")
-            print("[ABORT] step 3 — buttons disabled, waiting for session_end from patient")
+            print("[ABORT] step 2 — abort_session sent, controls disabled")
+            try:
+                self._abort_btn.config(text="Arrêt en cours…")
+            except Exception:
+                pass
+            print("[ABORT] step 3 — waiting for session_end from patient")
 
     def _cmd_stim_key(self) -> None:
         self._send({"type": "stim_key"})

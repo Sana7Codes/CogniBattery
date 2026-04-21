@@ -455,9 +455,10 @@ def run_session(
                 "escape",
             ])
             _check_global_keys(keys)
-            _check_stim_end(now_s)
 
-            # Clinician queue
+            # Drain clinician queue before checking STIM_END so that
+            # di_correct/di_incorrect is never missed on the same frame
+            # that the stim timer fires (DI_SEEG response capture).
             for cmd in _drain(from_clin_q):
                 t = cmd.get("type", "")
                 if t in ("abort", "abort_session"):
@@ -510,6 +511,8 @@ def run_session(
                             stimulus=stim.planche_id,
                             notes=ann_text,
                         ))
+
+            _check_stim_end(now_s)
 
             if abort_session or skip_this or exclude_this or next_trial_received:
                 break
