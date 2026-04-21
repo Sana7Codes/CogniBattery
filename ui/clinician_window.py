@@ -79,6 +79,7 @@ class ClinicianApp:
         task_display_name: str,
         progression_mode: str,
         stim_key: str = "f12",
+        mock: bool = False,
     ) -> None:
         self._from_q = from_patient_q
         self._to_q   = to_patient_q
@@ -86,6 +87,7 @@ class ClinicianApp:
         self._task_display    = task_display_name
         self._prog_mode       = progression_mode
         self._stim_key        = stim_key.lower()
+        self._mock            = mock
 
         # Session state
         self._trial_n          = 0
@@ -213,6 +215,13 @@ class ClinicianApp:
         if self._prog_mode == "ClinicianAction":
             self._next_btn.config(state="normal")
 
+        if self._mock:
+            self._mock_stim_btn = tk.Button(
+                ctrl, text="Test STIM (F12)", command=self._cmd_stim_key,
+                bg="#663300", fg=FG, width=15, **btn_cfg,
+            )
+            self._mock_stim_btn.grid(row=0, column=5, padx=5)
+
     # ── Session tab ───────────────────────────────────────────────────────────
 
     def _build_session_tab(self, parent: ttk.Frame) -> None:
@@ -223,9 +232,9 @@ class ClinicianApp:
         img_frame = tk.LabelFrame(main, text="Stimulus actuel", bg=BG, fg=FG, font=("Helvetica", 10))
         img_frame.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
 
-        self._img_label = tk.Label(img_frame, bg="black", width=44, height=22)
+        self._img_label = tk.Label(img_frame, bg="black")
         self._img_label.pack(padx=4, pady=4)
-        self._tk_img = None  # prevent GC
+        self._mirror_img = None  # prevent GC
 
         # Right: info panels
         info = tk.Frame(main, bg=BG)
@@ -631,9 +640,10 @@ class ClinicianApp:
             from PIL import Image as PILImage, ImageTk
             pil_img = PILImage.open(self._stim_path)
             pil_img.thumbnail((420, 300))
-            tk_img = ImageTk.PhotoImage(pil_img)
-            self._img_label.config(image=tk_img, text="")
-            self._tk_img = tk_img
+            mirror_img = ImageTk.PhotoImage(pil_img)
+            self._img_label.config(image=mirror_img, text="", width=0, height=0)
+            self._mirror_img = mirror_img
+            self._root.update_idletasks()
         except Exception:
             name = Path(self._stim_path).name if self._stim_path else "—"
             self._img_label.config(image="", text=f"[{name}]", fg=FG, bg="black")
@@ -798,34 +808,43 @@ class ClinicianApp:
         dlg = tk.Toplevel(self._root)
         dlg.title("Session terminée")
         dlg.grab_set()
-        dlg.configure(bg=BG)
+        dlg.configure(bg="white")
         dlg.resizable(False, False)
 
         tk.Label(
             dlg, text="Session terminée",
-            font=("Helvetica", 20, "bold"), fg=GREEN, bg=BG,
+            font=("Helvetica", 20, "bold"), fg="black", bg="white",
         ).pack(pady=(16, 8))
 
         pct = round(n_correct / n_total * 100, 1) if n_total else 0
+        if pct >= 70:
+            acc_color = "#007700"
+        elif pct >= 40:
+            acc_color = "#996600"
+        else:
+            acc_color = "#cc0000"
 
-        info_lines = [
-            f"Résultats :  {n_correct} / {n_total}  ({pct} %)",
-            f"Passés : {n_skipped}    Exclus : {n_excl}",
-        ]
+        tk.Label(
+            dlg,
+            text=f"Résultats :  {n_correct} / {n_total}  ({pct} %)",
+            fg=acc_color, bg="white", font=("Helvetica", 14, "bold"),
+        ).pack(pady=(4, 2))
+
+        other_lines = [f"Passés : {n_skipped}    Exclus : {n_excl}"]
         if mean_tr is not None:
-            info_lines.append(f"TR moyen : {mean_tr:.3f} s")
+            other_lines.append(f"TR moyen : {mean_tr:.3f} s")
 
-        for line in info_lines:
-            tk.Label(dlg, text=line, fg=FG, bg=BG, font=("Helvetica", 12)).pack(pady=2)
+        for line in other_lines:
+            tk.Label(dlg, text=line, fg="black", bg="white", font=("Helvetica", 12)).pack(pady=2)
 
         if csv_path:
             tk.Label(
                 dlg, text="\nDonnées sauvegardées :",
-                fg=FG_DIM, bg=BG, font=("Helvetica", 10),
+                fg="#444444", bg="white", font=("Helvetica", 10),
             ).pack()
             tk.Label(
                 dlg, text=csv_path,
-                fg="#aaddff", bg=BG, font=("Helvetica", 9),
+                fg="#0044aa", bg="white", font=("Helvetica", 9),
                 wraplength=480, justify="center",
             ).pack(padx=16, pady=(0, 12))
 
@@ -833,9 +852,11 @@ class ClinicianApp:
             dlg.destroy()
             self._root.destroy()
 
-        ttk.Button(
+        tk.Button(
             dlg, text="Fermer et revenir à l'accueil",
             command=_close,
+            bg="#dddddd", fg="black", font=("Helvetica", 11),
+            padx=12, pady=6,
         ).pack(pady=(8, 16))
 
     # ── Clinician commands ────────────────────────────────────────────────────
@@ -917,8 +938,10 @@ class ClinicianApp:
 
     def _cmd_abort(self) -> None:
         if messagebox.askyesno("Arrêter", "Arrêter la session en cours ?"):
-            self._send({"type": "abort"})
-            self._root.after(1500, self._root.destroy)
+            self._send({"type": "abort_session"})
+            self._abort_btn.config(state="disabled", text="Arrêt en cours…")
+            self._skip_btn.config(state="disabled")
+            self._excl_btn.config(state="disabled")
 
     def _cmd_stim_key(self) -> None:
         self._send({"type": "stim_key"})
@@ -962,6 +985,7 @@ def run_clinician_process(
     contact: str,
     intensity_ma: float,
     duration_s: float,
+    mock: bool = False,
 ) -> None:
     """
     Entry point for the clinician window subprocess.
@@ -974,6 +998,7 @@ def run_clinician_process(
         task_display_name=task_display_name,
         progression_mode=progression_mode,
         stim_key=stim_key,
+        mock=mock,
     )
     # Pre-populate stim params display
     app._electrode.set(electrode)

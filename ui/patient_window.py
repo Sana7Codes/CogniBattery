@@ -325,7 +325,7 @@ def run_session(
         # ── Pre-trial: drain clinician commands ───────────────────────────────
         for cmd in _drain(from_clin_q):
             t = cmd.get("type", "")
-            if t == "abort":
+            if t in ("abort", "abort_session"):
                 abort_session = True
                 break
             elif t == "skip":
@@ -452,7 +452,7 @@ def run_session(
             # Clinician queue
             for cmd in _drain(from_clin_q):
                 t = cmd.get("type", "")
-                if t == "abort":
+                if t in ("abort", "abort_session"):
                     abort_session = True
                 elif t == "skip":
                     skip_this = True

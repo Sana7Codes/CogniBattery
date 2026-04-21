@@ -74,6 +74,7 @@ def _launch_clinician(
     from_patient_q,
     to_patient_q,
     session: Session,
+    mock: bool = False,
 ) -> multiprocessing.Process:
     from ui.clinician_window import run_clinician_process
     p = session.current_stim_params
@@ -90,6 +91,7 @@ def _launch_clinician(
             p.contact,
             p.intensity_ma,
             p.duration_s,
+            mock,
         ),
         daemon=True,
         name="ClinicianWindow",
@@ -196,7 +198,7 @@ def main() -> None:
     to_clin_q   = multiprocessing.Queue()   # patient → clinician
     from_clin_q = multiprocessing.Queue()   # clinician → patient
 
-    clin_proc = _launch_clinician(to_clin_q, from_clin_q, session)
+    clin_proc = _launch_clinician(to_clin_q, from_clin_q, session, mock=args.mock)
 
     # ── Determine screen / fullscreen settings ────────────────────────────────
     patient_screen = 0 if args.single_screen else config.PATIENT_SCREEN
@@ -271,6 +273,19 @@ def main() -> None:
         clin_proc.join(timeout=30)
         if clin_proc.is_alive():
             clin_proc.terminate()
+
+        # Drain and close queues to prevent semaphore leaks
+        for _q in (to_clin_q, from_clin_q):
+            try:
+                while not _q.empty():
+                    _q.get_nowait()
+            except Exception:
+                pass
+            try:
+                _q.close()
+                _q.join_thread()
+            except Exception:
+                pass
 
     log_info("Battery exiting.")
 
