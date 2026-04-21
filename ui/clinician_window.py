@@ -461,10 +461,14 @@ class ClinicianApp:
             self._refresh_banque()
             self._root.lift()
             self._root.attributes("-topmost", True)
+            for _ms in (200, 600):
+                self._root.after(_ms, lambda: self._root.lift())
 
         elif t == "bring_to_front":
             self._root.lift()
             self._root.attributes("-topmost", True)
+            for _ms in (300, 800, 1500):
+                self._root.after(_ms, lambda: self._root.lift())
 
         elif t == "trial_start":
             # Mark previous as presented
@@ -966,4 +970,8 @@ def run_clinician_process(
     app._contact.set(contact)
     app._intensity.set(str(intensity_ma))
     app._duration.set(str(duration_s))
+    # Assert topmost before the patient window opens and can steal focus
+    app._root.lift()
+    app._root.attributes("-topmost", True)
+    app._root.update()
     app.run()

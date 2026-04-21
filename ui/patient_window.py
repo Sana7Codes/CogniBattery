@@ -303,6 +303,16 @@ def run_session(
             log_warning(f"Pre-load failed for {_s.planche_id}: {_exc}")
     log_info(f"Pre-loaded {len(_loaded_images)}/{len(stimulus_set.all_stimuli)} images")
 
+    # GPU warmup: force one invisible draw of every image so PsychoPy uploads all
+    # textures before the first trial, preventing a loading delay on IMAGE_ON.
+    for _img in _loaded_images.values():
+        _img.opacity = 0
+        _img.draw()
+    for _img in _loaded_images.values():
+        _img.opacity = 1
+    _loading_txt.draw()
+    win.flip()
+
     # Notify clinician window to come to front (patient window may have grabbed focus)
     _send(to_clin_q, {"type": "bring_to_front"})
 
@@ -619,22 +629,28 @@ def run_session(
             "time_iso": session.now_iso(),
         })
 
-        # Single-frame inter-trial blank (fixation handles the pre-trial pause)
-        win.flip()
         _check_global_keys(psy_event.getKeys())
         _check_stim_end(session.now())
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Session end
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # ── Session end overlay on patient screen ────────────────────────────────
+    _end_msg = "Session terminée" if not abort_session else "Session interrompue"
+    _end_txt = visual.TextStim(
+        win, text=_end_msg,
+        color="white", height=0.12, units="norm",
+    )
+    _end_txt.draw()
+    win.flip()
+
     event_log.log(Event(
         time_s=session.now(), time_iso=session.now_iso(),
         event=EventType.SESSION_END,
         notes=f"n_trials={n_total} n_correct={n_correct} aborted={abort_session}",
     ))
 
-    win.flip()
-    psy_core.wait(0.5)
+    psy_core.wait(1.5)
     win.close()
 
     log_info(f"Session ended. Trials: {n_total}, Correct: {n_correct}")
