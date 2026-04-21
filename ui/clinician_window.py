@@ -422,8 +422,18 @@ class ClinicianApp:
     # ── Key bindings ──────────────────────────────────────────────────────────
 
     def _bind_keys(self) -> None:
-        self._root.bind(f"<{self._stim_key.upper()}>", lambda e: self._cmd_stim_key())
-        self._root.bind(f"<{self._stim_key}>",          lambda e: self._cmd_stim_key())
+        # tkinter function-key keysyms must be uppercase: <F12> not <f12>.
+        # For letter keys (e.g. stim_key="s") both cases are bound.
+        upper_seq = f"<{self._stim_key.upper()}>"
+        try:
+            self._root.bind(upper_seq, lambda e: self._cmd_stim_key())
+        except tk.TclError:
+            pass
+        if len(self._stim_key) == 1:  # single letter — also bind lowercase
+            try:
+                self._root.bind(f"<{self._stim_key}>", lambda e: self._cmd_stim_key())
+            except tk.TclError:
+                pass
         self._root.bind("<k>",     lambda e: self._cmd_di_correct())
         self._root.bind("<K>",     lambda e: self._cmd_di_correct())
         self._root.bind("<x>",     lambda e: self._cmd_di_incorrect())
