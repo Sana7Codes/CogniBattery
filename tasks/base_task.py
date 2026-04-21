@@ -78,38 +78,19 @@ class BaseTask:
         task_code = self.session.task_code
         stimuli   = self.stimulus_set.all_stimuli
 
-        two_choice   = {"MUF_V1", "MUF_V2"}
-        auto_scored  = {"MUF_V1", "MUF_V2"}
         three_choice = {"FFP_V1", "FFP_V2", "FNP"}
         verbal       = {"DI_SEEG"}
-        asm          = {"ASM_MOTS", "ASM_SEEG"}
 
         if task_code in verbal:
             return "CounterBalance=N/A (verbal task)"
 
-        if task_code in asm:
-            msg = (
-                f"CounterBalance=Unknown (ASM task — correct side requires PPTX data; "
-                f"N={len(stimuli)} stimuli loaded)"
-            )
-            log_warning(
-                f"[{task_code}] Left/right correct-side not available in trials.csv. "
-                "Counterbalancing cannot be verified. Provide PPTX data to regenerate "
-                "trials.csv with a correct_side column."
-            )
-            return msg
-
         if task_code in three_choice:
-            # Check if target_position is present
             filled = [s for s in stimuli if getattr(s, "target_position", None)]
             if not filled:
-                msg = f"CounterBalance=Unknown (target_position blank — PPTX required; N={len(stimuli)})"
-                log_warning(
-                    f"[{task_code}] target_position is blank for all stimuli. "
-                    "Counterbalancing cannot be verified."
-                )
+                msg = f"CounterBalance=Unknown (target_position blank; N={len(stimuli)})"
+                log_warning(f"[{task_code}] target_position is blank for all stimuli.")
                 return msg
-            counts: dict[str, int] = {"left": 0, "center": 0, "right": 0}
+            counts: dict[str, int] = {"gauche": 0, "centre": 0, "droite": 0}
             for s in filled:
                 pos = (s.target_position or "").lower()
                 if pos in counts:
@@ -117,24 +98,24 @@ class BaseTask:
             total = sum(counts.values())
             ratios = {k: round(v / total * 100, 1) for k, v in counts.items()}
             msg = (
-                f"CounterBalance: left={counts['left']} ({ratios['left']}%) "
-                f"center={counts['center']} ({ratios['center']}%) "
-                f"right={counts['right']} ({ratios['right']}%)"
+                f"CounterBalance: gauche={counts['gauche']} ({ratios['gauche']}%) "
+                f"centre={counts['centre']} ({ratios['centre']}%) "
+                f"droite={counts['droite']} ({ratios['droite']}%)"
             )
             log_info(f"[{task_code}] {msg}")
             return msg
 
-        # Two-choice tasks with explicit correct_side (MUF)
-        left_n  = sum(1 for s in stimuli if getattr(s, "correct_response", None) == "left")
-        right_n = sum(1 for s in stimuli if getattr(s, "correct_response", None) == "right")
-        total   = left_n + right_n
+        # Two-choice tasks: MUF_V1/V2 and ASM_MOTS/ASM_SEEG
+        gauche_n = sum(1 for s in stimuli if getattr(s, "correct_response", None) == "gauche")
+        droite_n = sum(1 for s in stimuli if getattr(s, "correct_response", None) == "droite")
+        total    = gauche_n + droite_n
         if total == 0:
             return "CounterBalance=N/A (no correct_response values)"
-        pct_left  = round(left_n  / total * 100, 1)
-        pct_right = round(right_n / total * 100, 1)
+        pct_gauche = round(gauche_n / total * 100, 1)
+        pct_droite = round(droite_n / total * 100, 1)
         msg = (
-            f"CounterBalance: left={left_n} ({pct_left}%) "
-            f"right={right_n} ({pct_right}%)"
+            f"CounterBalance: gauche={gauche_n} ({pct_gauche}%) "
+            f"droite={droite_n} ({pct_droite}%)"
         )
         log_info(f"[{task_code}] {msg}")
         return msg

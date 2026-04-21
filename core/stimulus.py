@@ -56,20 +56,17 @@ class Stimulus:
         # ── Parse task-specific fields ────────────────────────────────────────
 
         if task_code in ("MUF_V1", "MUF_V2"):
-            # correct_side: 'left' or 'right' (from filename)
-            side = row.get("correct_side", "").lower()
-            self.correct_response: Optional[str] = side if side in ("left", "right") else None
+            side = row.get("correct_side", "").lower().strip()
+            self.correct_response: Optional[str] = side if side in ("gauche", "droite") else None
             self.correct_answer:   Optional[str] = self.correct_response
             self.stimulus_label:   Optional[str] = self.planche_id
             self.is_familiar:      Optional[bool] = None
 
         elif task_code in ("ASM_MOTS", "ASM_SEEG"):
-            # stimulus/correct are word labels; correct_side is NOT encoded
-            # in the filename — it requires the PPTX source.
-            # correct_response is set to None until PPTX data is available.
             self.stimulus_label   = row.get("stimulus", "")
             self.correct_answer   = row.get("correct", "")
-            self.correct_response = None   # cannot be auto-scored without PPTX
+            side = row.get("correct_side", "").lower().strip()
+            self.correct_response = side if side in ("gauche", "droite") else None
             self.is_familiar      = None
 
         elif task_code == "DI_SEEG":
@@ -229,7 +226,7 @@ class StimulusSet:
         Return counts of left/right/center across remaining + done stimuli
         (excluding skipped and excluded).
         """
-        counts = {"left": 0, "right": 0, "center": 0, "none": 0}
+        counts = {"gauche": 0, "droite": 0, "centre": 0, "none": 0}
         for s in self._queue + self._done:
             cr = getattr(s, "correct_response", None)
             if cr in counts:

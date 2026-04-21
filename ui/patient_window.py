@@ -34,37 +34,38 @@ _MIN_RESPONSE_GUARD_S = 0.150
 def _classify_zone(pos, task_code: str) -> Optional[str]:
     """
     Map a norm-coord mouse position to a hit-zone name, or None if outside zones.
+    Returns French zone names: gauche / droite / centre.
     """
     x, y = pos
     if task_code in _TWO_CHOICE:
         if y < -0.1:
             if x < 0:
-                return "left"
+                return "gauche"
             if x > 0:
-                return "right"
+                return "droite"
     elif task_code in _THREE_CHOICE:
         if x < -0.33:
-            return "left"
+            return "gauche"
         if x <= 0.33:
-            return "center"
-        return "right"
+            return "centre"
+        return "droite"
     return None
 
 
 def _keyboard_zone(keys: list[str], task_code: str) -> Optional[str]:
-    """Map keyboard fallback keys to zone names."""
+    """Map keyboard fallback keys to zone names (French)."""
     if task_code in _TWO_CHOICE:
-        if "q" in keys or "left" in keys:
-            return "left"
-        if "p" in keys or "right" in keys:
-            return "right"
+        if "q" in keys or "left" in keys:   # "left" = PsychoPy left-arrow key name
+            return "gauche"
+        if "p" in keys or "right" in keys:  # "right" = PsychoPy right-arrow key name
+            return "droite"
     elif task_code in _THREE_CHOICE:
         if "q" in keys:
-            return "left"
+            return "gauche"
         if "w" in keys:
-            return "center"
+            return "centre"
         if "p" in keys:
-            return "right"
+            return "droite"
     return None
 
 
