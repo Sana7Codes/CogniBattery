@@ -11,8 +11,12 @@ Usage examples:
 from __future__ import annotations
 
 import argparse
+import csv as _csv_mod
+import datetime as _dt_mod
 import multiprocessing
+import queue as _queue_mod
 import sys
+import time as _time_mod
 from datetime import datetime
 from pathlib import Path
 
@@ -98,6 +102,77 @@ def _launch_clinician(
     )
     proc.start()
     return proc
+
+
+# ── Emergency finalization helper ────────────────────────────────────────────
+
+def _emergency_save(session, event_log, csv_path, stimulus_set,
+                    n_total, n_correct, to_clin_q) -> None:
+    """Closes the event log, saves files, and notifies the clinician.
+    Used when the patient window crashed or the finalize timeout fires."""
+    try:
+        event_log.close()
+    except Exception as exc:
+        log_error("emergency_save: close failed", exc)
+    try:
+        event_log.finalize_epochs()
+    except Exception as exc:
+        log_error("emergency_save: finalize_epochs failed", exc)
+    try:
+        _sp = write_summary(
+            session=session, event_log=event_log,
+            n_trials=n_total, n_correct=n_correct,
+            n_skipped=stimulus_set.n_skipped,
+        )
+        log_info(f"emergency_save: summary → {_sp}")
+    except Exception as exc:
+        log_error("emergency_save: write_summary failed", exc)
+        _sp = None
+    _xp = None
+    try:
+        from data.session_writer import write_excel_report as _xl
+        _xp = _xl(
+            session=session, event_log=event_log,
+            n_trials=n_total, n_correct=n_correct,
+            n_skipped=stimulus_set.n_skipped,
+        )
+        log_info(f"emergency_save: Excel → {_xp}")
+    except Exception as exc:
+        log_error("emergency_save: write_excel_report failed", exc)
+
+    _resp_evs = [ev for ev in event_log.events if ev.event == EventType.RESPONSE]
+    _trs      = [ev.tr_s for ev in _resp_evs if ev.tr_s is not None]
+    _mean_tr  = sum(_trs) / len(_trs) if _trs else None
+    _n_stim   = sum(1 for ev in event_log.events if ev.event == EventType.STIM_START)
+
+    def _ep(label):
+        evs = [ev for ev in _resp_evs if ev.stim_epoch == label]
+        n   = len(evs); ok = sum(1 for ev in evs if ev.correct == "Yes")
+        trs = [ev.tr_s for ev in evs if ev.tr_s is not None]
+        return n, ok, (round(sum(trs)/len(trs), 3) if trs else None)
+
+    _n_pre,  _ok_pre,  _mtr_pre  = _ep("pré-stim")
+    _n_per,  _ok_per,  _mtr_per  = _ep("per-stim")
+    _n_post, _ok_post, _mtr_post = _ep("post-stim")
+
+    try:
+        to_clin_q.put_nowait({
+            "type":             "session_end",
+            "csv_path":         str(csv_path),
+            "n_total":          n_total,
+            "n_correct":        n_correct,
+            "n_skipped":        stimulus_set.n_skipped,
+            "n_excluded":       getattr(stimulus_set, "n_excluded", 0),
+            "mean_tr":          round(_mean_tr, 3) if _mean_tr is not None else None,
+            "patient_id":       session.patient_id,
+            "task_display_name": session.task_display_name,
+            "n_stim_events":    _n_stim,
+            "n_trials_pre":     _n_pre,  "n_correct_pre":  _ok_pre,  "mean_TR_pre":  _mtr_pre,
+            "n_trials_per":     _n_per,  "n_correct_per":  _ok_per,  "mean_TR_per":  _mtr_per,
+            "n_trials_post":    _n_post, "n_correct_post": _ok_post, "mean_TR_post": _mtr_post,
+        })
+    except Exception as exc:
+        log_error("emergency_save: notify clinician failed", exc)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -225,64 +300,113 @@ def main() -> None:
         log_error("Unhandled exception in trial loop", exc)
         n_total, n_correct = 0, 0
     finally:
-        # ── Finalization — only if patient_window did not already do it ────────
-        # session.finalized is set True by patient_window before event_log.close().
-        # If it is False here, patient_window crashed before finalizing.
-        if not getattr(session, "finalized", False):
-            print("[END] safety-net — patient_window did not finalize, running from run.py")
-            try:
-                event_log.close()
-            except Exception as exc:
-                log_error("Error closing event_log", exc)
-
-            try:
-                summary_path = write_summary(
-                    session    = session,
-                    event_log  = event_log,
-                    n_trials   = n_total,
-                    n_correct  = n_correct,
-                    n_skipped  = stimulus_set.n_skipped,
-                )
-                log_info(f"Summary CSV: {summary_path}")
-            except Exception as exc:
-                log_error("Error writing summary", exc)
-
-            try:
-                from core.event_log import EventType as _ET
-                _trs = [
-                    ev.tr_s for ev in event_log.events
-                    if ev.event == _ET.RESPONSE and ev.tr_s is not None
-                ]
-                _mean_tr = sum(_trs) / len(_trs) if _trs else None
-                to_clin_q.put_nowait({
-                    "type":       "session_end",
-                    "csv_path":   str(csv_path),
-                    "n_total":    n_total,
-                    "n_correct":  n_correct,
-                    "n_skipped":  stimulus_set.n_skipped,
-                    "n_excluded": stimulus_set.n_excluded,
-                    "mean_tr":    round(_mean_tr, 3) if _mean_tr is not None else None,
-                })
-            except Exception as exc:
-                log_error("Error sending session_end to clinician", exc)
-        else:
-            print("[END] patient_window finalized cleanly — skipping duplicate finalization")
-
-        # ── Hardware shutdown ─────────────────────────────────────────────────
+        # ── Hardware shutdown (always first) ──────────────────────────────────
         try:
             trigger.close()
             eyelink.disconnect()
         except Exception:
             pass
 
-        # Wait for clinician to dismiss the end dialog, then force-quit
+        # ── Finalization ───────────────────────────────────────────────────────
+        if not getattr(session, "finalized", False):
+            # Patient window crashed — emergency save
+            print("[END] safety-net — patient_window crashed, emergency finalization")
+            _emergency_save(
+                session, event_log, csv_path, stimulus_set,
+                n_total, n_correct, to_clin_q,
+            )
+
+        elif getattr(session, "was_aborted", False):
+            # Abort: patient_window already saved and sent session_end — nothing to do
+            print("[END] session was aborted — finalization done in patient_window")
+
+        else:
+            # Natural end: wait for clinician's notes + save/abandon decision
+            print("[END] natural end — waiting for clinician finalize decision (up to 10 min)")
+            _msg = None
+            _deadline = _time_mod.monotonic() + 600
+            while _time_mod.monotonic() < _deadline:
+                try:
+                    _msg = from_clin_q.get(timeout=2.0)
+                    if _msg.get("type") in ("finalize_save", "finalize_abandon"):
+                        break
+                    _msg = None   # other messages during wait — discard
+                except Exception:
+                    pass
+
+            if _msg and _msg.get("type") == "finalize_save":
+                notes = _msg.get("notes", "").strip()
+                # Append notes row to CSV if provided
+                if notes and Path(csv_path).exists():
+                    try:
+                        _now = _dt_mod.datetime.now()
+                        with open(csv_path, "a", newline="", encoding="utf-8") as _fh:
+                            _w = _csv_mod.writer(_fh)
+                            _w.writerow([
+                                round(session.now(), 6),
+                                _now.isoformat(timespec="microseconds"),
+                                "SESSION_NOTES",
+                                "", "", "", "", "", "", "", "", notes,
+                            ])
+                        log_info("SESSION_NOTES appended to CSV")
+                    except Exception as exc:
+                        log_error("Error appending notes to CSV", exc)
+
+                _summary_path = None
+                try:
+                    _summary_path = write_summary(
+                        session=session, event_log=event_log,
+                        n_trials=n_total, n_correct=n_correct,
+                        n_skipped=stimulus_set.n_skipped,
+                    )
+                    log_info(f"Summary CSV: {_summary_path}")
+                except Exception as exc:
+                    log_error("Error writing summary", exc)
+
+                _excel_path = None
+                try:
+                    from data.session_writer import write_excel_report as _write_xl
+                    _excel_path = _write_xl(
+                        session=session, event_log=event_log,
+                        n_trials=n_total, n_correct=n_correct,
+                        n_skipped=stimulus_set.n_skipped,
+                    )
+                    log_info(f"Excel report: {_excel_path}")
+                except Exception as exc:
+                    log_error("Error writing Excel report", exc)
+
+                to_clin_q.put_nowait({
+                    "type":         "session_saved",
+                    "csv_path":     str(csv_path),
+                    "summary_path": str(_summary_path or ""),
+                    "excel_path":   str(_excel_path   or ""),
+                })
+                log_info("session_saved sent to clinician")
+
+            elif _msg and _msg.get("type") == "finalize_abandon":
+                try:
+                    Path(csv_path).unlink(missing_ok=True)
+                    log_info(f"CSV deleted on abandon: {csv_path}")
+                except Exception as exc:
+                    log_error("Error deleting CSV on abandon", exc)
+                log_info("Session abandoned by clinician")
+                to_clin_q.put_nowait({"type": "session_abandoned"})
+
+            else:
+                # Timeout — emergency save without notes
+                log_error("Finalize decision timeout — auto-saving", None)
+                _emergency_save(
+                    session, event_log, csv_path, stimulus_set,
+                    n_total, n_correct, to_clin_q,
+                )
+
+        # Wait for clinician to close, then force-quit
         clin_proc.join(timeout=30)
         if clin_proc.is_alive():
             clin_proc.terminate()
-            clin_proc.join()   # reap the zombie after terminate
+            clin_proc.join()
 
-        # Release queue resources — cancel_join_thread so we don't block on a
-        # dead subprocess pipe; close() releases the underlying OS semaphores.
+        # Release queue resources
         for _q in (to_clin_q, from_clin_q):
             try:
                 _q.cancel_join_thread()

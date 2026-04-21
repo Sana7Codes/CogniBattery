@@ -30,6 +30,7 @@ CSV_COLUMNS: list[str] = [
     "Response",
     "Correct",
     "TR_s",
+    "stim_epoch",
     "TouchX",
     "TouchY",
     "Notes",
@@ -51,23 +52,25 @@ class EventType(Enum):
     STIMULUS_REPLACE = "STIMULUS_REPLACE"
     SESSION_END      = "SESSION_END"
     NOTE             = "NOTE"
+    SESSION_NOTES    = "SESSION_NOTES"
 
 
 # ─── Event row ────────────────────────────────────────────────────────────────
 
 @dataclass
 class Event:
-    time_s:    float
-    time_iso:  str
-    event:     EventType
-    essai:     Optional[int]   = None
-    stimulus:  Optional[str]   = None
-    response:  Optional[str]   = None
-    correct:   Optional[str]   = None   # "Yes" | "No" | None
-    tr_s:      Optional[float] = None
-    touch_x:   Optional[float] = None
-    touch_y:   Optional[float] = None
-    notes:     Optional[str]   = None
+    time_s:      float
+    time_iso:    str
+    event:       EventType
+    essai:       Optional[int]   = None
+    stimulus:    Optional[str]   = None
+    response:    Optional[str]   = None
+    correct:     Optional[str]   = None   # "Yes" | "No" | None
+    tr_s:        Optional[float] = None
+    stim_epoch:  Optional[str]   = None   # "pré-stim" | "per-stim" | "post-stim"
+    touch_x:     Optional[float] = None
+    touch_y:     Optional[float] = None
+    notes:       Optional[str]   = None
 
 
 # ─── EventLog ─────────────────────────────────────────────────────────────────
@@ -121,6 +124,14 @@ class EventLog:
             self._file.flush()
             self._file.close()
 
+    def finalize_epochs(self) -> None:
+        """
+        Classify all RESPONSE events by stim epoch, then rewrite the on-disk CSV
+        with the epoch column filled in.  Call this after close().
+        """
+        compute_stim_epochs(self._events)
+        self.flush_to_csv(self.csv_path)
+
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _open_file(self) -> None:
@@ -144,10 +155,62 @@ class EventLog:
             ev.response,
             ev.correct,
             round(ev.tr_s, 6) if ev.tr_s is not None else None,
+            ev.stim_epoch,
             ev.touch_x,
             ev.touch_y,
             ev.notes,
         ]
+
+
+# ─── Epoch classification ─────────────────────────────────────────────────────
+
+def compute_stim_epochs(events: list[Event]) -> None:
+    """
+    Classify each RESPONSE event in-place as 'pré-stim', 'per-stim', or 'post-stim'.
+
+    Algorithm (most-recent window first):
+      per-stim  — IMAGE_ON or RESPONSE falls inside a STIM_START→STIM_END window
+      post-stim — IMAGE_ON occurred after the most-recent window that ended before it
+      pré-stim  — default (no stim window precedes IMAGE_ON)
+    """
+    # Build (start_ts, end_ts) windows from STIM_START/STIM_END pairs
+    stim_windows: list[tuple[float, float]] = []
+    open_start: Optional[float] = None
+    for ev in events:
+        if ev.event == EventType.STIM_START:
+            open_start = ev.time_s
+        elif ev.event == EventType.STIM_END:
+            if open_start is not None:
+                stim_windows.append((open_start, ev.time_s))
+                open_start = None
+    if open_start is not None:
+        last_ts = events[-1].time_s if events else 0.0
+        stim_windows.append((open_start, last_ts))
+
+    # IMAGE_ON timestamp per essai
+    image_on_by_essai: dict[int, float] = {}
+    for ev in events:
+        if ev.event == EventType.IMAGE_ON and ev.essai is not None:
+            image_on_by_essai[ev.essai] = ev.time_s
+
+    for ev in events:
+        if ev.event != EventType.RESPONSE:
+            continue
+        image_on_ts = image_on_by_essai.get(ev.essai) if ev.essai is not None else None
+        if image_on_ts is None:
+            ev.stim_epoch = "pré-stim"
+            continue
+        response_ts = ev.time_s
+        epoch = "pré-stim"
+        for stim_start, stim_end in reversed(stim_windows):
+            if (stim_start <= image_on_ts <= stim_end) or \
+               (stim_start <= response_ts <= stim_end):
+                epoch = "per-stim"
+                break
+            if image_on_ts > stim_end:
+                epoch = "post-stim"
+                break
+        ev.stim_epoch = epoch
 
 
 # ─── MockEventLog ─────────────────────────────────────────────────────────────
@@ -187,6 +250,11 @@ class MockEventLog(EventLog):
 
     def flush_to_csv(self, path: str | Path) -> None:
         print(f"[MockEventLog] flush_to_csv → {path} ({len(self._events)} events, not written)")
+
+    def finalize_epochs(self) -> None:
+        compute_stim_epochs(self._events)
+        n = sum(1 for ev in self._events if ev.event == EventType.RESPONSE and ev.stim_epoch)
+        print(f"[MockEventLog] finalize_epochs — {n} RESPONSE events classified")
 
     def close(self) -> None:
         print(f"[MockEventLog] closed ({len(self._events)} events total)")

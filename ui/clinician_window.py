@@ -44,6 +44,9 @@ from __future__ import annotations
 
 import csv
 import datetime
+import os
+import platform
+import subprocess
 import time
 import tkinter as tk
 from pathlib import Path
@@ -569,9 +572,39 @@ class ClinicianApp:
             self._remaining_s = msg.get("remaining_s")
 
         elif t == "session_end":
-            print("[END] step 4 — clinician received session_end, showing end dialog")
+            # Abort path: files already saved; show summary immediately
+            print("[END] clinician received session_end (abort/emergency)")
             self._session_ended = True
             self._show_session_end_dialog(msg)
+
+        elif t == "session_end_pending":
+            # Natural end: show Finaliser dialog; run.py waits for save/abandon
+            print("[END] clinician received session_end_pending — showing finalise dialog")
+            self._pending_end_msg = msg
+            self._show_finalise_dialog(msg)
+
+        elif t == "session_saved":
+            print("[END] clinician received session_saved")
+            if hasattr(self, "_finalise_dlg"):
+                try:
+                    if self._finalise_dlg.winfo_exists():
+                        self._finalise_dlg.destroy()
+                except Exception:
+                    pass
+            self._session_ended = True
+            combined = {**(getattr(self, "_pending_end_msg", {})), **msg}
+            self._show_session_end_dialog(combined)
+
+        elif t == "session_abandoned":
+            print("[END] clinician received session_abandoned — closing")
+            if hasattr(self, "_finalise_dlg"):
+                try:
+                    if self._finalise_dlg.winfo_exists():
+                        self._finalise_dlg.destroy()
+                except Exception:
+                    pass
+            self._session_ended = True
+            self._root.destroy()
 
         elif t == "error":
             messagebox.showerror("Erreur", msg.get("message", "Erreur inconnue"))
@@ -796,58 +829,285 @@ class ClinicianApp:
         except Exception as exc:
             messagebox.showerror("Erreur export", str(exc))
 
+    # Item 15b: Finaliser la session dialog (natural end) ─────────────────────
+
+    def _show_finalise_dialog(self, msg: dict) -> None:
+        n_total    = msg.get("n_total",    self._n_total)
+        n_correct  = msg.get("n_correct",  self._n_correct)
+        patient_id = msg.get("patient_id", "—")
+        task_name  = msg.get("task_display_name", self._task_display)
+
+        dlg = tk.Toplevel(self._root)
+        dlg.title("Finaliser la session")
+        dlg.grab_set()
+        dlg.configure(bg="white")
+        dlg.resizable(False, False)
+        dlg.minsize(480, 1)
+        dlg.protocol("WM_DELETE_WINDOW", lambda: None)   # block window-close button
+        self._finalise_dlg = dlg
+
+        PAD = 24
+
+        tk.Label(dlg, text="Finaliser la session",
+                 font=("Helvetica", 18, "bold"), fg="black", bg="white").pack(pady=(20, 4))
+
+        subtitle = (
+            f"Patient : {patient_id}  —  {task_name}  "
+            f"—  {n_total} essais  —  {n_correct} corrects"
+        )
+        tk.Label(dlg, text=subtitle,
+                 font=("Helvetica", 10), fg="#666666", bg="white",
+                 wraplength=440).pack(fill="x", padx=PAD)
+
+        tk.Frame(dlg, bg="#cccccc", height=1).pack(fill="x", padx=PAD, pady=12)
+
+        tk.Label(dlg, text="Notes clinicien (optionnel)",
+                 font=("Helvetica", 11, "bold"), fg="#333333", bg="white",
+                 anchor="w").pack(fill="x", padx=PAD)
+
+        notes_box = tk.Text(dlg, width=52, height=4, wrap="word",
+                            font=("Helvetica", 11),
+                            bg="#f8f8f8", fg="#333333", relief="groove",
+                            padx=4, pady=4)
+        notes_box.pack(fill="x", padx=PAD, pady=(4, 2))
+
+        tk.Label(
+            dlg,
+            text='Ex : "Patient fatigué", "Stimulation non tolérée", "Essai 12 interrompu"',
+            font=("Helvetica", 9), fg="#999999", bg="white",
+            anchor="w", justify="left",
+        ).pack(fill="x", padx=PAD, pady=(0, 12))
+
+        tk.Frame(dlg, bg="#cccccc", height=1).pack(fill="x", padx=PAD, pady=(0, 10))
+
+        status_lbl = tk.Label(dlg, text="", font=("Helvetica", 10),
+                               fg="#555555", bg="white")
+        status_lbl.pack()
+
+        btn_frame = tk.Frame(dlg, bg="white")
+        btn_frame.pack(pady=(8, 20))
+
+        save_btn = tk.Button(
+            btn_frame, text="Sauvegarder et fermer",
+            bg="#005500", fg="white", font=("Helvetica", 11),
+            padx=12, pady=8,
+        )
+        abandon_btn = tk.Button(
+            btn_frame, text="Abandonner la session",
+            bg="#770000", fg="white", font=("Helvetica", 11),
+            padx=12, pady=8,
+        )
+        save_btn.pack(side="left", padx=8)
+        abandon_btn.pack(side="left", padx=8)
+
+        def _do_save():
+            notes = notes_box.get("1.0", "end-1c").strip()
+            save_btn.config(state="disabled")
+            abandon_btn.config(state="disabled")
+            status_lbl.config(text="Génération du rapport Excel…")
+            dlg.update_idletasks()
+            self._send({"type": "finalize_save", "notes": notes})
+            # dlg stays open; _handle_message('session_saved') will close it
+
+        def _do_abandon():
+            conf_dlg = tk.Toplevel(dlg)
+            conf_dlg.title("Confirmer abandon")
+            conf_dlg.configure(bg=BG)
+            conf_dlg.resizable(False, False)
+            conf_dlg.transient(dlg)
+
+            tk.Label(conf_dlg,
+                     text="Les données ne seront PAS sauvegardées.",
+                     fg=FG, bg=BG, font=("Helvetica", 12, "bold")).pack(padx=20, pady=(16, 6))
+            tk.Label(conf_dlg, text="Confirmer l'abandon ?",
+                     fg=FG_DIM, bg=BG, font=("Helvetica", 11)).pack(padx=20, pady=(0, 12))
+
+            confirmed = []
+            b = tk.Frame(conf_dlg, bg=BG)
+            b.pack(pady=(0, 16))
+            tk.Button(b, text="Oui, abandonner",
+                      command=lambda: [confirmed.append(True), conf_dlg.destroy()],
+                      bg="#770000", fg=FG, font=("Helvetica", 11),
+                      padx=10, pady=5).pack(side="left", padx=8)
+            tk.Button(b, text="Annuler", command=conf_dlg.destroy,
+                      bg="#334455", fg=FG, font=("Helvetica", 11),
+                      padx=10, pady=5).pack(side="left", padx=8)
+
+            conf_dlg.grab_set()
+            dlg.wait_window(conf_dlg)
+
+            if confirmed:
+                save_btn.config(state="disabled")
+                abandon_btn.config(state="disabled")
+                status_lbl.config(text="Session abandonnée…")
+                dlg.update_idletasks()
+                self._send({"type": "finalize_abandon"})
+                # _handle_message('session_abandoned') will destroy root
+
+        save_btn.config(command=_do_save)
+        abandon_btn.config(command=_do_abandon)
+
     # Item 16: Session end dialog ─────────────────────────────────────────────
 
     def _show_session_end_dialog(self, msg: dict) -> None:
-        n_total   = msg.get("n_total",   self._n_total)
-        n_correct = msg.get("n_correct", self._n_correct)
-        n_skipped = msg.get("n_skipped", self._n_skipped)
-        n_excl    = msg.get("n_excluded", self._n_excluded)
-        mean_tr   = msg.get("mean_tr")
-        csv_path  = msg.get("csv_path", "")
+        n_total       = msg.get("n_total",   self._n_total)
+        n_correct     = msg.get("n_correct", self._n_correct)
+        n_skipped     = msg.get("n_skipped", self._n_skipped)
+        n_excl        = msg.get("n_excluded", self._n_excluded)
+        mean_tr       = msg.get("mean_tr")
+        csv_path      = msg.get("csv_path", "")
+        patient_id    = msg.get("patient_id", "—")
+        task_name     = msg.get("task_display_name", self._task_display)
+        n_stim_events = msg.get("n_stim_events", 0)
+
+        n_pre  = msg.get("n_trials_pre",  0)
+        ok_pre = msg.get("n_correct_pre", 0)
+        tr_pre = msg.get("mean_TR_pre")
+        n_per  = msg.get("n_trials_per",  0)
+        ok_per = msg.get("n_correct_per", 0)
+        tr_per = msg.get("mean_TR_per")
+        n_post = msg.get("n_trials_post", 0)
+        ok_post= msg.get("n_correct_post",0)
+        tr_post= msg.get("mean_TR_post")
+
+        now      = datetime.datetime.now()
+        date_str = now.strftime("%Y-%m-%d")
+        time_str = now.strftime("%H:%M")
 
         dlg = tk.Toplevel(self._root)
         dlg.title("Session terminée")
         dlg.grab_set()
         dlg.configure(bg="white")
         dlg.resizable(False, False)
+        dlg.minsize(480, 1)
 
+        PAD = 24
+
+        # ── Title ────────────────────────────────────────────────────────────
         tk.Label(
             dlg, text="Session terminée",
             font=("Helvetica", 20, "bold"), fg="black", bg="white",
-        ).pack(pady=(16, 8))
+        ).pack(fill="x", pady=(20, 4))
 
-        pct = round(n_correct / n_total * 100, 1) if n_total else 0
-        if pct >= 70:
-            acc_color = "#007700"
-        elif pct >= 40:
-            acc_color = "#996600"
-        else:
-            acc_color = "#cc0000"
-
+        subtitle = f"Patient : {patient_id}  |  Tâche : {task_name}  |  {date_str}  {time_str}"
         tk.Label(
-            dlg,
-            text=f"Résultats :  {n_correct} / {n_total}  ({pct} %)",
-            fg=acc_color, bg="white", font=("Helvetica", 14, "bold"),
-        ).pack(pady=(4, 2))
+            dlg, text=subtitle,
+            font=("Helvetica", 10), fg="#666666", bg="white",
+            wraplength=440,
+        ).pack(fill="x", padx=PAD)
 
-        other_lines = [f"Passés : {n_skipped}    Exclus : {n_excl}"]
-        if mean_tr is not None:
-            other_lines.append(f"TR moyen : {mean_tr:.3f} s")
+        # ── Separator ────────────────────────────────────────────────────────
+        tk.Frame(dlg, bg="#cccccc", height=1).pack(fill="x", padx=PAD, pady=12)
 
-        for line in other_lines:
-            tk.Label(dlg, text=line, fg="black", bg="white", font=("Helvetica", 12)).pack(pady=2)
+        # ── Results block (3 columns) ─────────────────────────────────────────
+        pct = round(n_correct / n_total * 100, 1) if n_total else 0.0
+        if pct >= 70:
+            pct_color = "#007700"
+        elif pct >= 40:
+            pct_color = "#996600"
+        else:
+            pct_color = "#cc0000"
 
+        res_frame = tk.Frame(dlg, bg="white")
+        res_frame.pack(fill="x", padx=PAD, pady=(0, 8))
+        for col in range(3):
+            res_frame.columnconfigure(col, weight=1, uniform="res")
+
+        for col, hdr in enumerate(["Essais", "Corrects", "TR moyen"]):
+            tk.Label(res_frame, text=hdr,
+                     font=("Helvetica", 10), fg="#888888", bg="white",
+                     anchor="center").grid(row=0, column=col, sticky="ew")
+
+        tr_str = f"{mean_tr:.2f} s" if mean_tr is not None else "—"
+        tk.Label(res_frame, text=str(n_total),
+                 font=("Helvetica", 22, "bold"), fg="black", bg="white",
+                 anchor="center").grid(row=1, column=0, sticky="ew")
+
+        correct_inner = tk.Frame(res_frame, bg="white")
+        correct_inner.grid(row=1, column=1, sticky="ew")
+        tk.Label(correct_inner, text=f"{n_correct} ",
+                 font=("Helvetica", 22, "bold"), fg="black", bg="white").pack(side="left", expand=True, anchor="e")
+        tk.Label(correct_inner, text=f"({pct}%)",
+                 font=("Helvetica", 13), fg=pct_color, bg="white").pack(side="left", anchor="s", pady=5)
+
+        tk.Label(res_frame, text=tr_str,
+                 font=("Helvetica", 22, "bold"), fg="black", bg="white",
+                 anchor="center").grid(row=1, column=2, sticky="ew")
+
+        # ── Separator ────────────────────────────────────────────────────────
+        tk.Frame(dlg, bg="#cccccc", height=1).pack(fill="x", padx=PAD, pady=(4, 10))
+
+        # ── Stimulation block ─────────────────────────────────────────────────
+        if n_stim_events > 0:
+            s_label = "s" if n_stim_events != 1 else ""
+            tk.Label(
+                dlg, text=f"Stimulations : {n_stim_events} événement{s_label}",
+                font=("Helvetica", 11, "bold"), fg="black", bg="white", anchor="w",
+            ).pack(fill="x", padx=PAD, pady=(0, 6))
+
+            tbl = tk.Frame(dlg, bg="white")
+            tbl.pack(fill="x", padx=PAD, pady=(0, 10))
+            for col in range(3):
+                tbl.columnconfigure(col, weight=1, uniform="tbl")
+
+            # Header row
+            for col, hdr in enumerate(["", "Corrects", "TR moyen"]):
+                tk.Label(tbl, text=hdr,
+                         font=("Helvetica", 10, "bold"), fg="#444444", bg="#f0f0f0",
+                         padx=6, pady=3, anchor="center",
+                         relief="groove").grid(row=0, column=col, sticky="ew", padx=1, pady=1)
+
+            def _pct_str(n, ok):
+                if not n:
+                    return "—"
+                return f"{ok}/{n}  ({round(ok/n*100, 1)}%)"
+
+            def _tr_fmt(tr):
+                return f"{tr:.2f} s" if tr is not None else "—"
+
+            for ri, (label, n, ok, tr, color, row_bg) in enumerate([
+                ("Pré-stim",  n_pre,  ok_pre,  tr_pre,  "black",   "white"),
+                ("Per-stim",  n_per,  ok_per,  tr_per,  "#CC2200", "#fff6f6"),
+                ("Post-stim", n_post, ok_post, tr_post, "#0055AA", "#f4f8ff"),
+            ], start=1):
+                for col, (txt, anc) in enumerate([
+                    (label,              "w"),
+                    (_pct_str(n, ok),    "center"),
+                    (_tr_fmt(tr),        "center"),
+                ]):
+                    tk.Label(tbl, text=txt,
+                             font=("Helvetica", 11), fg=color, bg=row_bg,
+                             padx=6, pady=3, anchor=anc,
+                             relief="groove").grid(row=ri, column=col, sticky="ew", padx=1, pady=1)
+
+        # ── File line ─────────────────────────────────────────────────────────
         if csv_path:
-            tk.Label(
-                dlg, text="\nDonnées sauvegardées :",
-                fg="#444444", bg="white", font=("Helvetica", 10),
-            ).pack()
-            tk.Label(
-                dlg, text=csv_path,
-                fg="#0044aa", bg="white", font=("Helvetica", 9),
-                wraplength=480, justify="center",
-            ).pack(padx=16, pady=(0, 12))
+            stem = Path(csv_path).stem
+            file_row = tk.Frame(dlg, bg="white")
+            file_row.pack(fill="x", padx=PAD, pady=(0, 8))
+
+            tk.Label(file_row, text=f"Fichier sauvegardé : {stem}",
+                     font=("Helvetica", 9), fg="#888888", bg="white",
+                     wraplength=340, justify="left").pack(side="left")
+
+            def _open_folder(p=csv_path):
+                folder = str(Path(p).parent)
+                try:
+                    if platform.system() == "Windows":
+                        os.startfile(folder)
+                    elif platform.system() == "Darwin":
+                        subprocess.Popen(["open", folder])
+                    else:
+                        subprocess.Popen(["xdg-open", folder])
+                except Exception:
+                    pass
+
+            tk.Button(file_row, text="Ouvrir le dossier", command=_open_folder,
+                      bg="#eeeeee", fg="#333333", font=("Helvetica", 9),
+                      padx=6, pady=2, relief="groove").pack(side="right")
+
+        # ── Separator + close button ──────────────────────────────────────────
+        tk.Frame(dlg, bg="#cccccc", height=1).pack(fill="x", padx=PAD, pady=(4, 8))
 
         def _close():
             dlg.destroy()
@@ -857,8 +1117,8 @@ class ClinicianApp:
             dlg, text="Fermer et revenir à l'accueil",
             command=_close,
             bg="#dddddd", fg="black", font=("Helvetica", 11),
-            padx=12, pady=6,
-        ).pack(pady=(8, 16))
+            padx=12, pady=8, width=30,
+        ).pack(pady=(0, 16))
 
     # ── Clinician commands ────────────────────────────────────────────────────
 

@@ -643,19 +643,16 @@ def run_session(
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     print(f"[END] step 1 — outer loop exited (abort={abort_session}, n_total={n_total})")
 
-    # Guard: mark finalized immediately so run.py's finally is a no-op.
-    session.finalized = True
+    session.finalized   = True
+    session.was_aborted = abort_session
     print("[END] step 2 — session.finalized = True")
 
-    # ── Session end overlay on patient screen ────────────────────────────────
-    _end_msg = "Session terminée" if not abort_session else "Session interrompue"
-    _end_txt = visual.TextStim(
-        win, text=_end_msg,
-        color="white", height=0.12, units="norm",
-    )
-    _end_txt.draw()
+    # ── Session end overlay ───────────────────────────────────────────────────
+    _end_msg = "Session interrompue" if abort_session else "Session terminée"
+    visual.TextStim(win, text=_end_msg, color="white", height=0.12, units="norm").draw()
     win.flip()
 
+    # ── Log SESSION_END, close, classify epochs ───────────────────────────────
     _end_notes = (
         f"Aborted by clinician | n_trials={n_total} n_correct={n_correct}"
         if abort_session else
@@ -668,40 +665,71 @@ def run_session(
         notes=_end_notes,
     ))
 
-    # Flush CSV to disk before closing the window
     print("[END] step 4 — closing event_log (flush to disk)")
     event_log.close()
 
-    # Write summary CSV
-    print("[END] step 5 — writing summary CSV")
-    if csv_path:
-        try:
-            write_summary(
-                session=session,
-                event_log=event_log,
-                n_trials=n_total,
-                n_correct=n_correct,
-                n_skipped=stimulus_set.n_skipped,
-            )
-        except Exception as _exc:
-            log_error("write_summary failed in patient_window", _exc)
+    print("[END] step 4b — computing stim epochs")
+    event_log.finalize_epochs()
 
-    # Send session_end to clinician before closing the window
-    _trs = [
-        ev.tr_s for ev in event_log.events
-        if ev.event == EventType.RESPONSE and ev.tr_s is not None
-    ]
-    _mean_tr = round(sum(_trs) / len(_trs), 3) if _trs else None
-    print("[END] step 6 — sending session_end to clinician queue")
-    _send(to_clin_q, {
-        "type":       "session_end",
-        "csv_path":   csv_path,
-        "n_total":    n_total,
-        "n_correct":  n_correct,
-        "n_skipped":  stimulus_set.n_skipped,
-        "n_excluded": stimulus_set.n_excluded,
-        "mean_tr":    _mean_tr,
-    })
+    # ── Build shared stats payload ────────────────────────────────────────────
+    _resp_evs = [ev for ev in event_log.events if ev.event == EventType.RESPONSE]
+    _trs      = [ev.tr_s for ev in _resp_evs if ev.tr_s is not None]
+    _mean_tr  = round(sum(_trs) / len(_trs), 3) if _trs else None
+    _n_stim   = sum(1 for ev in event_log.events if ev.event == EventType.STIM_START)
+
+    def _ep(label):
+        evs = [ev for ev in _resp_evs if ev.stim_epoch == label]
+        n   = len(evs)
+        ok  = sum(1 for ev in evs if ev.correct == "Yes")
+        trs = [ev.tr_s for ev in evs if ev.tr_s is not None]
+        return n, ok, (round(sum(trs) / len(trs), 3) if trs else None)
+
+    _n_pre,  _ok_pre,  _mtr_pre  = _ep("pré-stim")
+    _n_per,  _ok_per,  _mtr_per  = _ep("per-stim")
+    _n_post, _ok_post, _mtr_post = _ep("post-stim")
+
+    _stats_payload = dict(
+        csv_path          = csv_path,
+        n_total           = n_total,
+        n_correct         = n_correct,
+        n_skipped         = stimulus_set.n_skipped,
+        n_excluded        = stimulus_set.n_excluded,
+        mean_tr           = _mean_tr,
+        patient_id        = session.patient_id,
+        task_display_name = session.task_display_name,
+        n_stim_events     = _n_stim,
+        n_trials_pre      = _n_pre,  n_correct_pre  = _ok_pre,  mean_TR_pre  = _mtr_pre,
+        n_trials_per      = _n_per,  n_correct_per  = _ok_per,  mean_TR_per  = _mtr_per,
+        n_trials_post     = _n_post, n_correct_post = _ok_post, mean_TR_post = _mtr_post,
+    )
+
+    if abort_session:
+        # Abort: save files immediately, show end dialog
+        print("[END] step 5 — abort: writing summary + Excel before signalling clinician")
+        if csv_path:
+            try:
+                write_summary(
+                    session=session, event_log=event_log,
+                    n_trials=n_total, n_correct=n_correct,
+                    n_skipped=stimulus_set.n_skipped,
+                )
+            except Exception as _exc:
+                log_error("write_summary failed (abort)", _exc)
+            try:
+                from data.session_writer import write_excel_report as _write_xl
+                _write_xl(
+                    session=session, event_log=event_log,
+                    n_trials=n_total, n_correct=n_correct,
+                    n_skipped=stimulus_set.n_skipped,
+                )
+            except Exception as _exc:
+                log_error("write_excel_report failed (abort)", _exc)
+        print("[END] step 6 — sending session_end (abort)")
+        _send(to_clin_q, {"type": "session_end", **_stats_payload})
+    else:
+        # Natural end: no file I/O in PsychoPy thread; run.py handles save after notes
+        print("[END] step 6 — sending session_end_pending (natural end)")
+        _send(to_clin_q, {"type": "session_end_pending", **_stats_payload})
 
     print("[END] step 7 — waiting 1.5s then closing PsychoPy window")
     psy_core.wait(1.5)
