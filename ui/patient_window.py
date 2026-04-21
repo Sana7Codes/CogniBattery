@@ -26,6 +26,10 @@ _TWO_CHOICE   = {"MUF_V1", "MUF_V2", "ASM_MOTS", "ASM_SEEG"}
 _THREE_CHOICE = {"FFP_V1", "FFP_V2", "FNP"}
 _VERBAL       = {"DI_SEEG"}
 
+# Ignore mouse/keyboard responses within this many seconds of IMAGE_ON.
+# Prevents phantom clicks carried over from the previous trial response.
+_MIN_RESPONSE_GUARD_S = 0.150
+
 
 def _classify_zone(pos, task_code: str) -> Optional[str]:
     """
@@ -266,13 +270,6 @@ def run_session(
             size=(norm_w, norm_h), units="norm",
         )
 
-    def _show_fixation(duration_s: float = 0.3) -> None:
-        t0 = session.now()
-        while session.now() - t0 < duration_s:
-            _fix_stim.draw()
-            win.flip()
-            _check_global_keys(psy_event.getKeys())
-
     # ── Per-frame global key checker (STIM_START, abort) ─────────────────────
     def _check_global_keys(keys: list[str]) -> Optional[str]:
         """Check F12 for STIM_START and escape for dev abort. Returns 'abort' or None."""
@@ -284,9 +281,7 @@ def run_session(
         if stim_tracker.check(now_s):
             _handle_stim_end()
 
-    # ── Pre-load: fixation cross + all stimulus images ────────────────────────
-    _fix_stim = visual.TextStim(win, text="+", color="white", height=0.12, units="norm")
-
+    # ── Pre-load: all stimulus images ────────────────────────────────────────
     _loading_txt = visual.TextStim(win, text="Chargement…", color="white", height=0.08, units="norm")
     _loading_txt.draw()
     win.flip()
@@ -406,8 +401,6 @@ def run_session(
             ],
         })
 
-        # ── Show fixation, then image ─────────────────────────────────────────
-        _show_fixation(0.3)
         mouse.clickReset()
         psy_event.clearEvents()
 
@@ -513,25 +506,28 @@ def run_session(
 
             # DI_SEEG: wait until clinician marks K/X; no mouse zones
             if stim.task_code not in _VERBAL and response_zone is None:
-                # Mouse click?
-                if mouse.getPressed()[0]:
-                    pos = mouse.getPos()
-                    zone = _classify_zone(pos, stim.task_code)
-                    if zone is not None:
-                        response_zone = zone
-                        response_ts   = session.now()
-                        response_iso  = session.now_iso()
-                        px, py        = _norm_to_pix(pos, win_size)
-                        touch_x, touch_y = px, py
-                        mouse.clickReset()
+                # Enforce minimum response guard to block phantom clicks from
+                # the previous trial's response being carried into this one.
+                if now_s - image_on_ts >= _MIN_RESPONSE_GUARD_S:
+                    # Mouse click?
+                    if mouse.getPressed()[0]:
+                        pos = mouse.getPos()
+                        zone = _classify_zone(pos, stim.task_code)
+                        if zone is not None:
+                            response_zone = zone
+                            response_ts   = session.now()
+                            response_iso  = session.now_iso()
+                            px, py        = _norm_to_pix(pos, win_size)
+                            touch_x, touch_y = px, py
+                            mouse.clickReset()
 
-                # Keyboard fallback
-                if response_zone is None:
-                    kz = _keyboard_zone(keys, stim.task_code)
-                    if kz:
-                        response_zone = kz
-                        response_ts   = session.now()
-                        response_iso  = session.now_iso()
+                    # Keyboard fallback
+                    if response_zone is None:
+                        kz = _keyboard_zone(keys, stim.task_code)
+                        if kz:
+                            response_zone = kz
+                            response_ts   = session.now()
+                            response_iso  = session.now_iso()
 
             # Response obtained — log exactly once, then check ProgressionMode
             if response_zone is not None:
