@@ -33,6 +33,8 @@ TASK_DISPLAY_NAMES: dict[str, str] = {
     "FNP":      "Noms célèbres – pointage",
 }
 
+_FFP_TASKS = ("FFP_V1", "FFP_V2")
+
 
 # ── Main form ─────────────────────────────────────────────────────────────────
 
@@ -48,6 +50,12 @@ class SetupForm:
         self._time_confirmed = False
         self._stim_vars: dict[str, tk.BooleanVar] = {}   # planche_id → BooleanVar
         self._stim_rows: list[dict] = []                  # raw trials.csv rows
+
+        # Familiarity pre-check state (item 1)
+        self._familiarity_done: bool = False
+        self._familiarity_kept: list[Stimulus] = []
+        self._familiarity_excluded_ids: list[str] = []
+
         self._root: tk.Tk | None = None
 
     def run(self) -> dict | None:
@@ -70,6 +78,7 @@ class SetupForm:
         # Patient ID
         ttk.Label(left, text="Patient ID *").grid(row=0, column=0, sticky="w")
         self._patient_id = tk.StringVar(value=self._presets.get("patient_id", ""))
+        self._patient_id.trace_add("write", lambda *_: self._update_start_state())
         ttk.Entry(left, textvariable=self._patient_id, width=20).grid(row=0, column=1, sticky="w", pady=2)
 
         # Date/time
@@ -97,11 +106,13 @@ class SetupForm:
         # Electrode
         ttk.Label(left, text="Électrode *").grid(row=4, column=0, sticky="w", pady=2)
         self._electrode = tk.StringVar(value=self._presets.get("electrode", ""))
+        self._electrode.trace_add("write", lambda *_: self._update_start_state())
         ttk.Entry(left, textvariable=self._electrode, width=10).grid(row=4, column=1, sticky="w")
 
         # Contact
         ttk.Label(left, text="Contact *").grid(row=5, column=0, sticky="w", pady=2)
         self._contact = tk.StringVar(value=self._presets.get("contact", ""))
+        self._contact.trace_add("write", lambda *_: self._update_start_state())
         ttk.Entry(left, textvariable=self._contact, width=10).grid(row=5, column=1, sticky="w")
 
         # Intensity
@@ -135,11 +146,37 @@ class SetupForm:
         self._stim_key = tk.StringVar(value=self._presets.get("stim_key", "f12"))
         ttk.Entry(left, textvariable=self._stim_key, width=10).grid(row=10, column=1, sticky="w")
 
+        # Item 3: STIM key reminder text
+        self._stim_reminder = ttk.Label(
+            left,
+            text="⌨ Cette touche déclenche la stimulation en session.",
+            foreground="#888888",
+            font=("Helvetica", 8),
+        )
+        self._stim_reminder.grid(row=11, column=0, columnspan=2, sticky="w", padx=4)
+
+        # Item 1: Familiarity pre-check button (FFP tasks only)
+        self._precheck_btn = ttk.Button(
+            left, text="Vérification de familiarité…",
+            command=self._do_precheck,
+        )
+        self._precheck_btn.grid(row=12, column=0, columnspan=2, pady=(6, 2))
+
+        self._precheck_status = ttk.Label(
+            left, text="", foreground="#888888", font=("Helvetica", 8)
+        )
+        self._precheck_status.grid(row=13, column=0, columnspan=2)
+
+        # Show precheck controls only for FFP tasks
+        if self._task_code.get() not in _FFP_TASKS:
+            self._precheck_btn.grid_remove()
+            self._precheck_status.grid_remove()
+
         # Order
-        ttk.Label(left, text="Ordre stimuli").grid(row=11, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(left, text="Ordre stimuli").grid(row=14, column=0, sticky="w", pady=(8, 0))
         self._order = tk.StringVar(value=self._presets.get("order", "random"))
         order_frame = ttk.Frame(left)
-        order_frame.grid(row=11, column=1, sticky="w")
+        order_frame.grid(row=14, column=1, sticky="w")
         ttk.Radiobutton(order_frame, text="Aléatoire", variable=self._order, value="random").pack(side="left")
         ttk.Radiobutton(order_frame, text="Fixe",     variable=self._order, value="fixed").pack(side="left")
 
@@ -148,10 +185,10 @@ class SetupForm:
             left, text="Démarrer la session", command=self._on_start,
             state="disabled"
         )
-        self._start_btn.grid(row=12, column=0, columnspan=2, pady=(16, 4))
+        self._start_btn.grid(row=15, column=0, columnspan=2, pady=(16, 4))
 
         self._status_label = ttk.Label(left, text="⚠ Confirmez l'heure pour continuer.", foreground="orange")
-        self._status_label.grid(row=13, column=0, columnspan=2)
+        self._status_label.grid(row=16, column=0, columnspan=2)
 
         # ── Right column: stimulus list ───────────────────────────────────────
         right = ttk.LabelFrame(root, text="Stimuli", padding=8)
@@ -160,7 +197,7 @@ class SetupForm:
         self._cb_label = ttk.Label(right, text="")
         self._cb_label.pack(anchor="w")
 
-        canvas = tk.Canvas(right, width=340, height=480)
+        canvas = tk.Canvas(right, width=360, height=480)
         sb = ttk.Scrollbar(right, orient="vertical", command=canvas.yview)
         self._stim_inner = ttk.Frame(canvas)
         self._stim_inner.bind(
@@ -215,11 +252,19 @@ class SetupForm:
         for stim in stimuli:
             var = tk.BooleanVar(value=True)
             self._stim_vars[stim.planche_id] = var
+
+            # Item 4: human-readable name
+            label = getattr(stim, "stimulus_label", None) or stim.planche_id
+            if label and label != stim.planche_id:
+                display_text = f"{label}  [{stim.planche_id}]"
+            else:
+                display_text = stim.planche_id
+
             cb = ttk.Checkbutton(
                 self._stim_inner,
-                text=stim.planche_id,
+                text=display_text,
                 variable=var,
-                command=self._update_cb_label,
+                command=self._on_stim_selection_changed,
             )
             cb.pack(anchor="w")
 
@@ -230,11 +275,10 @@ class SetupForm:
             return
         task_code = self._task_code.get()
         folder = task_folder(task_code)
-        selected = [
-            pid for pid, var in self._stim_vars.items() if var.get()
-        ]
-        # Count left/right from selected stimuli
-        left_n = right_n = 0
+        selected = [pid for pid, var in self._stim_vars.items() if var.get()]
+
+        # Item 2: count left/center/right
+        left_n = center_n = right_n = 0
         for row in self._stim_rows:
             pid = Path(row["filename"]).stem
             if pid not in selected:
@@ -243,32 +287,95 @@ class SetupForm:
             cr = getattr(stim, "correct_response", None)
             if cr == "left":
                 left_n += 1
+            elif cr == "center":
+                center_n += 1
             elif cr == "right":
                 right_n += 1
+
         total = len(selected)
-        if left_n + right_n > 0:
-            cb_text = (
-                f"{total} stimuli sélectionnés   "
-                f"| Gauche: {left_n}  Droite: {right_n}"
-            )
+        if left_n + center_n + right_n > 0:
+            parts = [f"{total} stimuli sélectionnés"]
+            if left_n > 0:
+                parts.append(f"Gauche: {left_n}")
+            if center_n > 0:
+                parts.append(f"Centre: {center_n}")
+            if right_n > 0:
+                parts.append(f"Droite: {right_n}")
+            cb_text = "   |   ".join(parts)
         else:
             cb_text = f"{total} stimuli sélectionnés"
         self._cb_label.config(text=cb_text)
 
+    def _on_stim_selection_changed(self) -> None:
+        self._update_cb_label()
+        # Reset precheck if selection changes after it was done
+        if self._familiarity_done:
+            self._familiarity_done = False
+            self._familiarity_kept = []
+            self._familiarity_excluded_ids = []
+            self._precheck_btn.config(text="Vérification de familiarité…")
+            self._precheck_status.config(text="Sélection modifiée — relancez la vérification.", foreground="orange")
+            self._update_start_state()
+
     def _select_all(self) -> None:
         for var in self._stim_vars.values():
             var.set(True)
-        self._update_cb_label()
+        self._on_stim_selection_changed()
 
     def _deselect_all(self) -> None:
         for var in self._stim_vars.values():
             var.set(False)
-        self._update_cb_label()
+        self._on_stim_selection_changed()
+
+    # ── Familiarity pre-check (item 1) ────────────────────────────────────────
+
+    def _do_precheck(self) -> None:
+        """Run familiarity pre-check on currently selected stimuli (FFP only)."""
+        task_code = self._task_code.get()
+        folder = task_folder(task_code)
+        selected_ids = {pid for pid, var in self._stim_vars.items() if var.get()}
+        all_stimuli = [Stimulus(task_code, row, folder) for row in self._stim_rows]
+        selected = [s for s in all_stimuli if s.planche_id in selected_ids]
+
+        if not selected:
+            messagebox.showwarning("Pré-vérification", "Aucun stimulus sélectionné.")
+            return
+
+        kept, excluded = self._run_familiarity_check(selected)
+        self._familiarity_kept = kept
+        self._familiarity_excluded_ids = excluded
+        self._familiarity_done = True
+
+        n_kept = len(kept)
+        n_excl = len(excluded)
+        self._precheck_btn.config(text="✓ Vérification faite — relancer")
+        self._precheck_status.config(
+            text=f"{n_kept} familiers retenus, {n_excl} exclus.",
+            foreground="#00aa44",
+        )
+        self._update_start_state()
 
     # ── Event handlers ────────────────────────────────────────────────────────
 
     def _on_task_changed(self, _event=None) -> None:
+        task_code = self._task_code.get()
+
+        # Reset familiarity state when task changes
+        self._familiarity_done = False
+        self._familiarity_kept = []
+        self._familiarity_excluded_ids = []
+
+        if task_code in _FFP_TASKS:
+            self._precheck_btn.config(text="Vérification de familiarité…")
+            self._precheck_status.config(text="")
+            self._precheck_btn.grid()
+            self._precheck_status.grid()
+        else:
+            self._precheck_btn.grid_remove()
+            self._precheck_status.grid_remove()
+
         self._load_stimuli()
+        self._update_start_state()
 
     def _on_prog_changed(self, _event=None) -> None:
         if hasattr(self, "_timer_entry"):
@@ -278,17 +385,23 @@ class SetupForm:
                 self._timer_entry.config(state="disabled")
 
     def _update_start_state(self) -> None:
+        task_code = self._task_code.get()
+        needs_precheck = task_code in _FFP_TASKS
+
         ready = (
             self._time_confirmed
             and bool(self._patient_id.get().strip())
             and bool(self._electrode.get().strip())
             and bool(self._contact.get().strip())
+            and (not needs_precheck or self._familiarity_done)
         )
         self._start_btn.config(state="normal" if ready else "disabled")
         if ready:
             self._status_label.config(text="Prêt à démarrer.", foreground="green")
         elif not self._time_confirmed:
             self._status_label.config(text="⚠ Confirmez l'heure pour continuer.", foreground="orange")
+        elif needs_precheck and not self._familiarity_done:
+            self._status_label.config(text="⚠ Lancez la vérification de familiarité.", foreground="orange")
         else:
             self._status_label.config(text="⚠ Remplissez tous les champs obligatoires.", foreground="orange")
 
@@ -310,39 +423,43 @@ class SetupForm:
                 return
 
         task_code = self._task_code.get()
-        selected_ids = {pid for pid, var in self._stim_vars.items() if var.get()}
-        if not selected_ids:
-            messagebox.showerror("Erreur", "Sélectionnez au moins un stimulus.")
-            return
 
         # Build selected stimuli list
-        folder = task_folder(task_code)
-        all_stimuli = [Stimulus(task_code, row, folder) for row in self._stim_rows]
-        selected_stimuli = [s for s in all_stimuli if s.planche_id in selected_ids]
-
-        # Familiarity pre-check for FFP tasks
-        excluded_ids: list[str] = []
-        if task_code in ("FFP_V1", "FFP_V2"):
-            selected_stimuli, excluded_ids = self._run_familiarity_check(selected_stimuli)
+        if task_code in _FFP_TASKS:
+            # Use pre-check results (required before start is enabled)
+            selected_stimuli = self._familiarity_kept
+            excluded_ids = self._familiarity_excluded_ids
+            if not selected_stimuli:
+                messagebox.showerror("Erreur", "Aucun stimulus retenu après la vérification de familiarité.")
+                return
+        else:
+            selected_ids = {pid for pid, var in self._stim_vars.items() if var.get()}
+            if not selected_ids:
+                messagebox.showerror("Erreur", "Sélectionnez au moins un stimulus.")
+                return
+            folder = task_folder(task_code)
+            all_stimuli = [Stimulus(task_code, row, folder) for row in self._stim_rows]
+            selected_stimuli = [s for s in all_stimuli if s.planche_id in selected_ids]
+            excluded_ids = []
 
         self.result = {
-            "patient_id":       self._patient_id.get().strip(),
-            "task_code":        task_code,
+            "patient_id":        self._patient_id.get().strip(),
+            "task_code":         task_code,
             "task_display_name": TASK_DISPLAY_NAMES.get(task_code, task_code),
-            "electrode":        self._electrode.get().strip(),
-            "contact":          self._contact.get().strip(),
-            "intensity_ma":     intensity,
-            "duration_s":       duration,
-            "progression_mode": self._prog_mode.get(),
-            "timer_delay_s":    timer_delay,
-            "stim_key":         self._stim_key.get().strip().lower(),
-            "order":            self._order.get(),
-            "selected_stimuli": selected_stimuli,
-            "excluded_ids":     excluded_ids,
+            "electrode":         self._electrode.get().strip(),
+            "contact":           self._contact.get().strip(),
+            "intensity_ma":      intensity,
+            "duration_s":        duration,
+            "progression_mode":  self._prog_mode.get(),
+            "timer_delay_s":     timer_delay,
+            "stim_key":          self._stim_key.get().strip().lower(),
+            "order":             self._order.get(),
+            "selected_stimuli":  selected_stimuli,
+            "excluded_ids":      excluded_ids,
         }
         self._root.destroy()
 
-    # ── Familiarity pre-check (FFP only) ──────────────────────────────────────
+    # ── Familiarity pre-check modal ───────────────────────────────────────────
 
     def _run_familiarity_check(
         self,
@@ -393,10 +510,7 @@ class SetupForm:
 
         btn_frame = ttk.Frame(win)
         btn_frame.pack(pady=8)
-        ttk.Button(
-            btn_frame, text="Familier", command=on_familiar,
-            style="Accent.TButton" if "Accent.TButton" in ttk.Style().theme_names() else "TButton"
-        ).pack(side="left", padx=8)
+        ttk.Button(btn_frame, text="Familier",     command=on_familiar).pack(side="left", padx=8)
         ttk.Button(btn_frame, text="Non familier", command=on_unfamiliar).pack(side="left", padx=8)
 
         for i, stim in enumerate(stimuli):

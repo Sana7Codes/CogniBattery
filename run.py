@@ -238,10 +238,23 @@ def main() -> None:
             )
             log_info(f"Summary CSV: {summary_path}")
 
+            # Compute mean TR for session end dialog
+            from core.event_log import EventType as _ET
+            _trs = [
+                ev.tr_s for ev in event_log.events
+                if ev.event == _ET.RESPONSE and ev.tr_s is not None
+            ]
+            _mean_tr = sum(_trs) / len(_trs) if _trs else None
+
             # Notify clinician window
             to_clin_q.put_nowait({
-                "type":     "session_end",
-                "csv_path": str(csv_path),
+                "type":       "session_end",
+                "csv_path":   str(csv_path),
+                "n_total":    n_total,
+                "n_correct":  n_correct,
+                "n_skipped":  stimulus_set.n_skipped,
+                "n_excluded": stimulus_set.n_excluded,
+                "mean_tr":    round(_mean_tr, 3) if _mean_tr is not None else None,
             })
 
         except Exception as exc:
@@ -254,10 +267,10 @@ def main() -> None:
         except Exception:
             pass
 
-        # Give clinician window a moment to show the end message
-        import time
-        time.sleep(2)
-        clin_proc.terminate()
+        # Wait for clinician to dismiss the end dialog, then force-quit if still alive
+        clin_proc.join(timeout=30)
+        if clin_proc.is_alive():
+            clin_proc.terminate()
 
     log_info("Battery exiting.")
 

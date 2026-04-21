@@ -50,6 +50,7 @@ class EventType(Enum):
     STIMULUS_EXCLUDE = "STIMULUS_EXCLUDE"
     STIMULUS_REPLACE = "STIMULUS_REPLACE"
     SESSION_END      = "SESSION_END"
+    NOTE             = "NOTE"
 
 
 # ─── Event row ────────────────────────────────────────────────────────────────

@@ -188,10 +188,18 @@ def run_session(
     stim_tracker = _StimTracker()
     stim_key_lower = session.stim_key.lower()
 
-    # Announce session start to clinician
+    # Announce session start to clinician (include full stimulus list for Banque tab)
     _send(to_clin_q, {
         "type": "session_started",
         "task_display_name": session.task_display_name,
+        "stimuli": [
+            {
+                "planche_id": s.planche_id,
+                "path":       s.image_path,
+                "label":      (getattr(s, "stimulus_label", None) or s.planche_id),
+            }
+            for s in stimulus_set.all_stimuli
+        ],
     })
     _send(to_clin_q, {
         "type": "stim_params",
@@ -229,9 +237,11 @@ def run_session(
         ))
         stim_tracker.arm(now_s, p.duration_s)
         _send(to_clin_q, {
-            "type":     "stim_event",
-            "event":    "STIM_START",
+            "type":       "stim_event",
+            "event":      "STIM_START",
             "duration_s": p.duration_s,
+            "time_s":     now_s,
+            "time_iso":   now_iso,
         })
         log_info(f"STIM_START logged: {notes}")
 
@@ -241,7 +251,12 @@ def run_session(
             event=EventType.STIM_END,
             notes="AutoComputed",
         ))
-        _send(to_clin_q, {"type": "stim_event", "event": "STIM_END"})
+        _send(to_clin_q, {
+            "type":     "stim_event",
+            "event":    "STIM_END",
+            "time_s":   session.now(),
+            "time_iso": session.now_iso(),
+        })
 
     # ── Helper: build image stimulus ──────────────────────────────────────────
     def _make_image(path: str):
@@ -252,11 +267,9 @@ def run_session(
         )
 
     def _show_fixation(duration_s: float = 0.3) -> None:
-        fix = visual.TextStim(win, text="+", color="white",
-                               height=0.12, units="norm")
         t0 = session.now()
         while session.now() - t0 < duration_s:
-            fix.draw()
+            _fix_stim.draw()
             win.flip()
             _check_global_keys(psy_event.getKeys())
 
@@ -270,6 +283,28 @@ def run_session(
     def _check_stim_end(now_s: float) -> None:
         if stim_tracker.check(now_s):
             _handle_stim_end()
+
+    # ── Pre-load: fixation cross + all stimulus images ────────────────────────
+    _fix_stim = visual.TextStim(win, text="+", color="white", height=0.12, units="norm")
+
+    _loading_txt = visual.TextStim(win, text="Chargement…", color="white", height=0.08, units="norm")
+    _loading_txt.draw()
+    win.flip()
+
+    _loaded_images: dict[str, "visual.ImageStim"] = {}
+    for _s in stimulus_set.all_stimuli:
+        try:
+            _nw, _nh = _compute_image_size(_s.image_path, win_size)
+            _loaded_images[_s.planche_id] = visual.ImageStim(
+                win, image=_s.image_path, pos=(0, 0),
+                size=(_nw, _nh), units="norm",
+            )
+        except Exception as _exc:
+            log_warning(f"Pre-load failed for {_s.planche_id}: {_exc}")
+    log_info(f"Pre-loaded {len(_loaded_images)}/{len(stimulus_set.all_stimuli)} images")
+
+    # Notify clinician window to come to front (patient window may have grabbed focus)
+    _send(to_clin_q, {"type": "bring_to_front"})
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Main trial loop
@@ -315,6 +350,15 @@ def run_session(
                     float(cmd.get("intensity_ma", 0)),
                     float(cmd.get("duration_s", 0)),
                 )
+            elif t == "annotate":
+                ann_text = cmd.get("text", "").strip()
+                if ann_text:
+                    event_log.log(Event(
+                        time_s=session.now(), time_iso=session.now_iso(),
+                        event=EventType.NOTE,
+                        essai=n_total,
+                        notes=ann_text,
+                    ))
 
         if abort_session or not stimulus_set.has_next():
             break
@@ -340,8 +384,14 @@ def run_session(
             "stimulus_path":  stim.image_path,
             "correct_answer": str(stim.correct_answer or ""),
             "planche_id":     stim.planche_id,
+            "time_s":         session.now(),
+            "time_iso":       session.now_iso(),
             "remaining":      [
-                {"planche_id": s.planche_id, "path": s.image_path}
+                {
+                    "planche_id": s.planche_id,
+                    "path":       s.image_path,
+                    "label":      (getattr(s, "stimulus_label", None) or s.planche_id),
+                }
                 for s in stimulus_set.remaining
             ],
         })
@@ -351,10 +401,9 @@ def run_session(
         mouse.clickReset()
         psy_event.clearEvents()
 
-        try:
-            img_stim = _make_image(stim.image_path)
-        except Exception as exc:
-            log_error(f"Failed to load image {stim.image_path}: {exc}", exc)
+        img_stim = _loaded_images.get(stim.planche_id)
+        if img_stim is None:
+            log_error(f"Image not pre-loaded for {stim.planche_id}", None)
             stimulus_set.advance()
             continue
 
@@ -370,17 +419,19 @@ def run_session(
             essai=n_total, stimulus=stim.planche_id,
         ))
         trigger.send(TTL_IMAGE_ON)
-        _send(to_clin_q, {"type": "image_on", "time_s": image_on_ts})
+        _send(to_clin_q, {"type": "image_on", "time_s": image_on_ts, "time_iso": image_on_iso})
 
         # ── Response collection loop ──────────────────────────────────────────
-        response_zone:  Optional[str] = None
-        response_ts:    Optional[float] = None
-        response_iso:   Optional[str] = None
-        touch_x:        Optional[int] = None
-        touch_y:        Optional[int] = None
-        is_correct:     Optional[bool] = None
-        skip_this:      bool = False
-        exclude_this:   bool = False
+        response_zone:       Optional[str]   = None
+        response_ts:         Optional[float] = None
+        response_iso:        Optional[str]   = None
+        touch_x:             Optional[int]   = None
+        touch_y:             Optional[int]   = None
+        is_correct:          Optional[bool]  = None
+        skip_this:           bool = False
+        exclude_this:        bool = False
+        response_logged:     bool = False   # guard: log RESPONSE only once per trial
+        next_trial_received: bool = False   # ClinicianAction: clinician clicked "Essai suivant"
 
         while True:
             now_s = session.now()
@@ -425,7 +476,7 @@ def run_session(
                     _handle_stim_start()
                 elif t == "next_trial" and session.progression_mode == "ClinicianAction":
                     if response_zone is not None:
-                        break  # clinician confirmed, advance
+                        next_trial_received = True   # break AFTER the for-loop
                 elif t == "di_correct" and stim.task_code == "DI_SEEG":
                     response_zone  = "correct"
                     response_ts    = session.now()
@@ -436,8 +487,18 @@ def run_session(
                     response_ts    = session.now()
                     response_iso   = session.now_iso()
                     is_correct     = False
+                elif t == "annotate":
+                    ann_text = cmd.get("text", "").strip()
+                    if ann_text:
+                        event_log.log(Event(
+                            time_s=session.now(), time_iso=session.now_iso(),
+                            event=EventType.NOTE,
+                            essai=n_total,
+                            stimulus=stim.planche_id,
+                            notes=ann_text,
+                        ))
 
-            if abort_session or skip_this or exclude_this:
+            if abort_session or skip_this or exclude_this or next_trial_received:
                 break
 
             # DI_SEEG: wait until clinician marks K/X; no mouse zones
@@ -462,44 +523,41 @@ def run_session(
                         response_ts   = session.now()
                         response_iso  = session.now_iso()
 
-            # Response obtained — check ProgressionMode
+            # Response obtained — log exactly once, then check ProgressionMode
             if response_zone is not None:
-                if is_correct is None:
-                    is_correct = task.check_correct(response_zone, stim)
+                if not response_logged:
+                    if is_correct is None:
+                        is_correct = task.check_correct(response_zone, stim)
+                    tr_s = (response_ts - image_on_ts) if response_ts else None
+                    event_log.log(Event(
+                        time_s=response_ts or session.now(),
+                        time_iso=response_iso or session.now_iso(),
+                        event=EventType.RESPONSE,
+                        essai=n_total,
+                        stimulus=stim.planche_id,
+                        response=response_zone,
+                        correct="Yes" if is_correct is True else ("No" if is_correct is False else None),
+                        tr_s=tr_s,
+                        touch_x=touch_x,
+                        touch_y=touch_y,
+                    ))
+                    if is_correct is True:
+                        n_correct += 1
+                    _send(to_clin_q, {
+                        "type":       "response",
+                        "response":   response_zone,
+                        "is_correct": is_correct,
+                        "tr_s":       tr_s,
+                        "time_s":     response_ts or session.now(),
+                        "time_iso":   response_iso or session.now_iso(),
+                    })
+                    _send_stats()
+                    response_logged = True
 
-                # Log RESPONSE immediately
-                tr_s = (response_ts - image_on_ts) if response_ts else None
-                event_log.log(Event(
-                    time_s=response_ts or session.now(),
-                    time_iso=response_iso or session.now_iso(),
-                    event=EventType.RESPONSE,
-                    essai=n_total,
-                    stimulus=stim.planche_id,
-                    response=response_zone,
-                    correct="Yes" if is_correct is True else ("No" if is_correct is False else None),
-                    tr_s=tr_s,
-                    touch_x=touch_x,
-                    touch_y=touch_y,
-                ))
-
-                if is_correct is True:
-                    n_correct += 1
-
-                _send(to_clin_q, {
-                    "type":       "response",
-                    "response":   response_zone,
-                    "is_correct": is_correct,
-                    "tr_s":       tr_s,
-                })
-                _send_stats()
-
-                # PatientTouch or DI_SEEG: advance immediately
+                # PatientTouch or DI_SEEG: advance immediately after first logged response
                 if session.progression_mode == "PatientTouch" or stim.task_code in _VERBAL:
                     break
-                # Timer: response recorded, wait for timer expiry
-                if session.progression_mode == "Timer":
-                    response_zone = response_zone  # keep, handled in Timer block below
-                    # Fall through to timer wait
+                # Timer/ClinicianAction: keep image on screen, wait for timer or next_trial
 
             # Timer mode: check if time is up (whether or not response received)
             if session.progression_mode == "Timer":
@@ -554,13 +612,17 @@ def run_session(
         ))
         stimulus_set.advance()
 
-        # Brief inter-trial blank
+        _send(to_clin_q, {
+            "type":     "trial_end",
+            "trial_n":  n_total,
+            "time_s":   session.now(),
+            "time_iso": session.now_iso(),
+        })
+
+        # Single-frame inter-trial blank (fixation handles the pre-trial pause)
         win.flip()
-        t_iti = session.now()
-        while session.now() - t_iti < 0.3:
-            _check_global_keys(psy_event.getKeys())
-            _check_stim_end(session.now())
-            win.flip()
+        _check_global_keys(psy_event.getKeys())
+        _check_stim_end(session.now())
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Session end
