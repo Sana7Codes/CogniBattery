@@ -17,6 +17,7 @@ from core.event_log import Event, EventLog, EventType
 from core.session import Session
 from core.stimulus import Stimulus, StimulusSet
 from core.error_log import log_error, log_info, log_warning
+from data.session_writer import write_summary
 from hardware.micromed import TTL_IMAGE_ON
 
 
@@ -171,6 +172,7 @@ def run_session(
     from_clin_q,                # multiprocessing.Queue (clinician → patient)
     screen:        int  = 1,
     fullscreen:    bool = True,
+    csv_path:      str  = "",
 ) -> None:
     """
     Open the PsychoPy patient window and run the full trial loop.
@@ -375,6 +377,11 @@ def run_session(
 
         n_total += 1
         session.trial_index = n_total
+
+        if n_total > stimulus_set.n_total:
+            log_warning(f"n_total overflow {n_total}/{stimulus_set.n_total} — forcing session end")
+            n_total = stimulus_set.n_total
+            break
 
         # ── TRIAL_START ───────────────────────────────────────────────────────
         event_log.log(Event(
@@ -646,6 +653,38 @@ def run_session(
         event=EventType.SESSION_END,
         notes=f"n_trials={n_total} n_correct={n_correct} aborted={abort_session}",
     ))
+
+    # Flush CSV to disk before closing the window
+    event_log.close()
+
+    # Write summary CSV
+    if csv_path:
+        try:
+            write_summary(
+                session=session,
+                event_log=event_log,
+                n_trials=n_total,
+                n_correct=n_correct,
+                n_skipped=stimulus_set.n_skipped,
+            )
+        except Exception as _exc:
+            log_error("write_summary failed in patient_window", _exc)
+
+    # Send session_end to clinician before closing the window
+    _trs = [
+        ev.tr_s for ev in event_log.events
+        if ev.event == EventType.RESPONSE and ev.tr_s is not None
+    ]
+    _mean_tr = round(sum(_trs) / len(_trs), 3) if _trs else None
+    _send(to_clin_q, {
+        "type":       "session_end",
+        "csv_path":   csv_path,
+        "n_total":    n_total,
+        "n_correct":  n_correct,
+        "n_skipped":  stimulus_set.n_skipped,
+        "n_excluded": stimulus_set.n_excluded,
+        "mean_tr":    _mean_tr,
+    })
 
     psy_core.wait(1.5)
     win.close()

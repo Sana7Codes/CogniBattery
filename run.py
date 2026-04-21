@@ -217,6 +217,7 @@ def main() -> None:
             from_clin_q  = from_clin_q,
             screen       = patient_screen,
             fullscreen   = use_fullscreen,
+            csv_path     = str(csv_path),
         )
         n_total, n_correct = result if result else (0, 0)
 
@@ -224,13 +225,15 @@ def main() -> None:
         log_error("Unhandled exception in trial loop", exc)
         n_total, n_correct = 0, 0
     finally:
-        # ── Write final CSV ───────────────────────────────────────────────────
+        # ── Safety-net finalization (patient_window handles the normal path) ──
+        # These are no-ops on normal completion; they cover the crash path where
+        # run_session raised an exception and patient_window never called them.
         try:
-            event_log.close()
-            # Write a clean copy at the resolved path (incremental file is same path)
-            log_info(f"Session CSV: {csv_path}")
+            event_log.close()   # idempotent: checks self._file.closed
+        except Exception as exc:
+            log_error("Error closing event_log", exc)
 
-            # Write summary
+        try:
             summary_path = write_summary(
                 session    = session,
                 event_log  = event_log,
@@ -239,16 +242,18 @@ def main() -> None:
                 n_skipped  = stimulus_set.n_skipped,
             )
             log_info(f"Summary CSV: {summary_path}")
+        except Exception as exc:
+            log_error("Error writing summary", exc)
 
-            # Compute mean TR for session end dialog
+        try:
             from core.event_log import EventType as _ET
             _trs = [
                 ev.tr_s for ev in event_log.events
                 if ev.event == _ET.RESPONSE and ev.tr_s is not None
             ]
             _mean_tr = sum(_trs) / len(_trs) if _trs else None
-
-            # Notify clinician window
+            # Duplicate session_end is harmless: clinician ignores it once
+            # _session_ended is True (poll loop stops after first receipt).
             to_clin_q.put_nowait({
                 "type":       "session_end",
                 "csv_path":   str(csv_path),
@@ -258,9 +263,8 @@ def main() -> None:
                 "n_excluded": stimulus_set.n_excluded,
                 "mean_tr":    round(_mean_tr, 3) if _mean_tr is not None else None,
             })
-
         except Exception as exc:
-            log_error("Error during session cleanup", exc)
+            log_error("Error sending session_end to clinician", exc)
 
         # ── Hardware shutdown ─────────────────────────────────────────────────
         try:
@@ -269,21 +273,18 @@ def main() -> None:
         except Exception:
             pass
 
-        # Wait for clinician to dismiss the end dialog, then force-quit if still alive
+        # Wait for clinician to dismiss the end dialog, then force-quit
         clin_proc.join(timeout=30)
         if clin_proc.is_alive():
             clin_proc.terminate()
+            clin_proc.join()   # reap the zombie after terminate
 
-        # Drain and close queues to prevent semaphore leaks
+        # Release queue resources — cancel_join_thread so we don't block on a
+        # dead subprocess pipe; close() releases the underlying OS semaphores.
         for _q in (to_clin_q, from_clin_q):
             try:
-                while not _q.empty():
-                    _q.get_nowait()
-            except Exception:
-                pass
-            try:
+                _q.cancel_join_thread()
                 _q.close()
-                _q.join_thread()
             except Exception:
                 pass
 
