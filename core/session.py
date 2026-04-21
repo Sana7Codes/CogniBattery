@@ -91,6 +91,7 @@ class Session:
 
         self.clock = Clock()
         self.trial_index = 0
+        self.finalized = False   # set True after first SESSION_END finalization
 
     # ── Stim params ───────────────────────────────────────────────────────────
 

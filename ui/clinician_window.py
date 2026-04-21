@@ -569,6 +569,7 @@ class ClinicianApp:
             self._remaining_s = msg.get("remaining_s")
 
         elif t == "session_end":
+            print("[END] step 4 — clinician received session_end, showing end dialog")
             self._session_ended = True
             self._show_session_end_dialog(msg)
 
@@ -937,11 +938,65 @@ class ClinicianApp:
             self._send({"type": "next_trial"})
 
     def _cmd_abort(self) -> None:
-        if messagebox.askyesno("Arrêter", "Arrêter la session en cours ?"):
+        # If the session already ended (end dialog showing), just close the root.
+        if self._session_ended:
+            self._root.destroy()
+            return
+
+        confirmed = []
+
+        dlg = tk.Toplevel(self._root)
+        dlg.title("Arrêter la session")
+        dlg.configure(bg=BG)
+        dlg.resizable(False, False)
+        dlg.transient(self._root)
+
+        tk.Label(
+            dlg,
+            text="Êtes-vous sûr de vouloir arrêter la session ?",
+            fg=FG, bg=BG, font=("Helvetica", 13, "bold"),
+            wraplength=340,
+        ).pack(padx=24, pady=(20, 6))
+
+        tk.Label(
+            dlg,
+            text="Les données seront sauvegardées.",
+            fg=FG_DIM, bg=BG, font=("Helvetica", 11),
+        ).pack(padx=24, pady=(0, 16))
+
+        btn_frame = tk.Frame(dlg, bg=BG)
+        btn_frame.pack(pady=(0, 16))
+
+        tk.Button(
+            btn_frame, text="Oui, arrêter",
+            command=lambda: [confirmed.append(True), dlg.destroy()],
+            bg="#770000", fg=FG, font=("Helvetica", 11),
+            padx=12, pady=6,
+        ).pack(side="left", padx=8)
+
+        tk.Button(
+            btn_frame, text="Annuler",
+            command=dlg.destroy,
+            bg="#334455", fg=FG, font=("Helvetica", 11),
+            padx=12, pady=6,
+        ).pack(side="left", padx=8)
+
+        dlg.protocol("WM_DELETE_WINDOW", dlg.destroy)
+        dlg.grab_set()
+        self._root.wait_window(dlg)   # local event loop — poll continues during wait
+
+        if confirmed:
+            print("[ABORT] step 1 — clinician confirmed abort")
             self._send({"type": "abort_session"})
+            print("[ABORT] step 2 — abort_session sent to patient queue")
             self._abort_btn.config(state="disabled", text="Arrêt en cours…")
             self._skip_btn.config(state="disabled")
             self._excl_btn.config(state="disabled")
+            self._repl_btn.config(state="disabled")
+            self._next_btn.config(state="disabled")
+            if hasattr(self, "_mock_stim_btn"):
+                self._mock_stim_btn.config(state="disabled")
+            print("[ABORT] step 3 — buttons disabled, waiting for session_end from patient")
 
     def _cmd_stim_key(self) -> None:
         self._send({"type": "stim_key"})

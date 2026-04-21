@@ -329,6 +329,7 @@ def run_session(
             t = cmd.get("type", "")
             if t in ("abort", "abort_session"):
                 abort_session = True
+                print(f"[ABORT] patient received {t!r} (pre-trial drain)")
                 break
             elif t == "skip":
                 event_log.log(Event(
@@ -461,6 +462,7 @@ def run_session(
                 t = cmd.get("type", "")
                 if t in ("abort", "abort_session"):
                     abort_session = True
+                    print(f"[ABORT] patient received {t!r} (mid-trial queue drain)")
                 elif t == "skip":
                     skip_this = True
                 elif t == "exclude":
@@ -639,6 +641,12 @@ def run_session(
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Session end
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    print(f"[END] step 1 — outer loop exited (abort={abort_session}, n_total={n_total})")
+
+    # Guard: mark finalized immediately so run.py's finally is a no-op.
+    session.finalized = True
+    print("[END] step 2 — session.finalized = True")
+
     # ── Session end overlay on patient screen ────────────────────────────────
     _end_msg = "Session terminée" if not abort_session else "Session interrompue"
     _end_txt = visual.TextStim(
@@ -648,16 +656,24 @@ def run_session(
     _end_txt.draw()
     win.flip()
 
+    _end_notes = (
+        f"Aborted by clinician | n_trials={n_total} n_correct={n_correct}"
+        if abort_session else
+        f"n_trials={n_total} n_correct={n_correct}"
+    )
+    print("[END] step 3 — logging SESSION_END")
     event_log.log(Event(
         time_s=session.now(), time_iso=session.now_iso(),
         event=EventType.SESSION_END,
-        notes=f"n_trials={n_total} n_correct={n_correct} aborted={abort_session}",
+        notes=_end_notes,
     ))
 
     # Flush CSV to disk before closing the window
+    print("[END] step 4 — closing event_log (flush to disk)")
     event_log.close()
 
     # Write summary CSV
+    print("[END] step 5 — writing summary CSV")
     if csv_path:
         try:
             write_summary(
@@ -676,6 +692,7 @@ def run_session(
         if ev.event == EventType.RESPONSE and ev.tr_s is not None
     ]
     _mean_tr = round(sum(_trs) / len(_trs), 3) if _trs else None
+    print("[END] step 6 — sending session_end to clinician queue")
     _send(to_clin_q, {
         "type":       "session_end",
         "csv_path":   csv_path,
@@ -686,8 +703,10 @@ def run_session(
         "mean_tr":    _mean_tr,
     })
 
+    print("[END] step 7 — waiting 1.5s then closing PsychoPy window")
     psy_core.wait(1.5)
     win.close()
+    print("[END] step 8 — PsychoPy window closed, returning to run.py")
 
     log_info(f"Session ended. Trials: {n_total}, Correct: {n_correct}")
     return n_total, n_correct

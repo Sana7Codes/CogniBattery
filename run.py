@@ -225,46 +225,48 @@ def main() -> None:
         log_error("Unhandled exception in trial loop", exc)
         n_total, n_correct = 0, 0
     finally:
-        # ── Safety-net finalization (patient_window handles the normal path) ──
-        # These are no-ops on normal completion; they cover the crash path where
-        # run_session raised an exception and patient_window never called them.
-        try:
-            event_log.close()   # idempotent: checks self._file.closed
-        except Exception as exc:
-            log_error("Error closing event_log", exc)
+        # ── Finalization — only if patient_window did not already do it ────────
+        # session.finalized is set True by patient_window before event_log.close().
+        # If it is False here, patient_window crashed before finalizing.
+        if not getattr(session, "finalized", False):
+            print("[END] safety-net — patient_window did not finalize, running from run.py")
+            try:
+                event_log.close()
+            except Exception as exc:
+                log_error("Error closing event_log", exc)
 
-        try:
-            summary_path = write_summary(
-                session    = session,
-                event_log  = event_log,
-                n_trials   = n_total,
-                n_correct  = n_correct,
-                n_skipped  = stimulus_set.n_skipped,
-            )
-            log_info(f"Summary CSV: {summary_path}")
-        except Exception as exc:
-            log_error("Error writing summary", exc)
+            try:
+                summary_path = write_summary(
+                    session    = session,
+                    event_log  = event_log,
+                    n_trials   = n_total,
+                    n_correct  = n_correct,
+                    n_skipped  = stimulus_set.n_skipped,
+                )
+                log_info(f"Summary CSV: {summary_path}")
+            except Exception as exc:
+                log_error("Error writing summary", exc)
 
-        try:
-            from core.event_log import EventType as _ET
-            _trs = [
-                ev.tr_s for ev in event_log.events
-                if ev.event == _ET.RESPONSE and ev.tr_s is not None
-            ]
-            _mean_tr = sum(_trs) / len(_trs) if _trs else None
-            # Duplicate session_end is harmless: clinician ignores it once
-            # _session_ended is True (poll loop stops after first receipt).
-            to_clin_q.put_nowait({
-                "type":       "session_end",
-                "csv_path":   str(csv_path),
-                "n_total":    n_total,
-                "n_correct":  n_correct,
-                "n_skipped":  stimulus_set.n_skipped,
-                "n_excluded": stimulus_set.n_excluded,
-                "mean_tr":    round(_mean_tr, 3) if _mean_tr is not None else None,
-            })
-        except Exception as exc:
-            log_error("Error sending session_end to clinician", exc)
+            try:
+                from core.event_log import EventType as _ET
+                _trs = [
+                    ev.tr_s for ev in event_log.events
+                    if ev.event == _ET.RESPONSE and ev.tr_s is not None
+                ]
+                _mean_tr = sum(_trs) / len(_trs) if _trs else None
+                to_clin_q.put_nowait({
+                    "type":       "session_end",
+                    "csv_path":   str(csv_path),
+                    "n_total":    n_total,
+                    "n_correct":  n_correct,
+                    "n_skipped":  stimulus_set.n_skipped,
+                    "n_excluded": stimulus_set.n_excluded,
+                    "mean_tr":    round(_mean_tr, 3) if _mean_tr is not None else None,
+                })
+            except Exception as exc:
+                log_error("Error sending session_end to clinician", exc)
+        else:
+            print("[END] patient_window finalized cleanly — skipping duplicate finalization")
 
         # ── Hardware shutdown ─────────────────────────────────────────────────
         try:
