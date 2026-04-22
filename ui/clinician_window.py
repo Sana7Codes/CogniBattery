@@ -841,12 +841,17 @@ class ClinicianApp:
 
         dlg = tk.Toplevel(self._root)
         dlg.title("Finaliser la session")
-        dlg.grab_set()
         dlg.configure(bg="white")
         dlg.resizable(False, False)
         dlg.minsize(480, 1)
         dlg.protocol("WM_DELETE_WINDOW", lambda: None)   # block window-close button
         self._finalise_dlg = dlg
+        dlg.transient(self._root)
+        dlg.grab_set()
+        dlg.lift()
+        dlg.attributes("-topmost", True)
+        dlg.focus_force()
+        dlg.update()
 
         PAD = 24
 
@@ -917,6 +922,11 @@ class ClinicianApp:
             conf_dlg.configure(bg=BG)
             conf_dlg.resizable(False, False)
             conf_dlg.transient(dlg)
+            conf_dlg.grab_set()
+            conf_dlg.lift()
+            conf_dlg.attributes("-topmost", True)
+            conf_dlg.focus_force()
+            conf_dlg.update()
 
             tk.Label(conf_dlg,
                      text="Les données ne seront PAS sauvegardées.",
@@ -978,10 +988,15 @@ class ClinicianApp:
 
         dlg = tk.Toplevel(self._root)
         dlg.title("Session terminée")
-        dlg.grab_set()
         dlg.configure(bg="white")
         dlg.resizable(False, False)
         dlg.minsize(480, 1)
+        dlg.transient(self._root)
+        dlg.grab_set()
+        dlg.lift()
+        dlg.attributes("-topmost", True)
+        dlg.focus_force()
+        dlg.update()
 
         PAD = 24
 
@@ -1157,8 +1172,13 @@ class ClinicianApp:
 
         dlg = tk.Toplevel(self._root)
         dlg.title("Remplacer le stimulus actuel")
-        dlg.grab_set()
         dlg.configure(bg=BG)
+        dlg.transient(self._root)
+        dlg.grab_set()
+        dlg.lift()
+        dlg.attributes("-topmost", True)
+        dlg.focus_force()
+        dlg.update()
 
         tk.Label(
             dlg, text="Sélectionnez le stimulus de remplacement:",
@@ -1245,6 +1265,11 @@ class ClinicianApp:
         dlg.configure(bg=BG)
         dlg.resizable(False, False)
         dlg.transient(self._root)
+        dlg.grab_set()
+        dlg.lift()
+        dlg.attributes("-topmost", True)
+        dlg.focus_force()
+        dlg.update()
 
         tk.Label(
             dlg,
