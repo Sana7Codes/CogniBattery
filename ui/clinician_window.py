@@ -1115,12 +1115,28 @@ class ClinicianApp:
             dlg.destroy()
             self._root.destroy()
 
+        def _quit():
+            dlg.destroy()
+            try:
+                self._send({"type": "quit_app"})
+            except Exception:
+                pass
+            self._root.destroy()
+
+        btn_row = tk.Frame(dlg, bg="white")
+        btn_row.pack(pady=(0, 16))
         tk.Button(
-            dlg, text="Fermer et revenir à l'accueil",
+            btn_row, text="Fermer et revenir à l'accueil",
             command=_close,
             bg="#dddddd", fg="black", font=("Helvetica", 11),
-            padx=12, pady=8, width=30,
-        ).pack(pady=(0, 16))
+            padx=12, pady=8,
+        ).pack(side="left", padx=6)
+        tk.Button(
+            btn_row, text="Quitter",
+            command=_quit,
+            bg="#770000", fg="white", font=("Helvetica", 11),
+            padx=12, pady=8,
+        ).pack(side="left", padx=6)
 
     # ── Clinician commands ────────────────────────────────────────────────────
 

@@ -357,6 +357,19 @@ def _run_one_session(cfg: dict, args, trigger, eyelink) -> dict:
             clin_proc.terminate()
             clin_proc.join()
 
+        # Check if the clinician clicked "Quitter" in the results dialog.
+        # The quit_app message arrives in from_clin_q after the subprocess exits.
+        _action = "new_session"
+        try:
+            import queue as _q_mod
+            while True:
+                _m = from_clin_q.get_nowait()
+                if _m.get("type") == "quit_app":
+                    _action = "quit"
+                    break
+        except Exception:
+            pass
+
         for _q in (to_clin_q, from_clin_q):
             try:
                 _q.cancel_join_thread()
@@ -366,14 +379,17 @@ def _run_one_session(cfg: dict, args, trigger, eyelink) -> dict:
 
     p = session.current_stim_params
     return {
+        "action":            _action,
         "patient_id":        session.patient_id,
+        "task":              session.task_code,
+        "task_display_name": session.task_display_name,
         "electrode":         p.electrode,
         "contact":           p.contact,
         "intensity_ma":      p.intensity_ma,
         "duration_s":        p.duration_s,
-        "task_display_name": session.task_display_name,
-        "n_total":           n_total,
+        "n_trials":          n_total,
         "n_correct":         n_correct,
+        "filename_stem":     Path(csv_path).stem,
         "csv_path":          str(csv_path),
     }
 
@@ -429,7 +445,11 @@ def main() -> None:
                 prev_session_info = _run_one_session(cfg, args, trigger, eyelink)
             except Exception as exc:
                 log_error("Session crashed — returning to setup form", exc)
-                # prev_session_info unchanged; loop continues
+                prev_session_info = None  # no banner for crash
+
+            if prev_session_info and prev_session_info.get("action") == "quit":
+                log_info("Clinician chose Quitter — exiting.")
+                break
 
             # Clear the one-time CLI task preset after the first session
             cli_presets.pop("task_code", None)

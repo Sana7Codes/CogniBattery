@@ -82,27 +82,29 @@ class SetupForm:
         psi = self._prev_session_info
         if psi is not None:
             self._banner_prev_patient = psi.get("patient_id", "")
-            stem  = Path(psi.get("csv_path", "")).stem or "—"
-            n     = psi.get("n_total", 0)
+            stem  = psi.get("filename_stem") or Path(psi.get("csv_path", "")).stem or "—"
+            n     = psi.get("n_trials", psi.get("n_total", 0))
             ok    = psi.get("n_correct", 0)
-            task  = psi.get("task_display_name", "—")
+            task  = psi.get("task_display_name", psi.get("task", "—"))
 
+            _BG = "#e8f4fd"
+            _FG = "#1a5276"
             self._banner_frame = tk.Frame(
-                root, bg="#fffbe6", pady=8, padx=16, relief="groove", bd=1,
+                root, bg=_BG, pady=8, padx=16, relief="groove", bd=1,
             )
             self._banner_frame.grid(row=0, column=0, columnspan=2,
                                     sticky="ew", padx=8, pady=(8, 0))
             tk.Label(
                 self._banner_frame,
-                text=f"Session précédente : {task} — {n} essais — {ok} corrects",
+                text=f"Session précédente : {task} — {n} essais, {ok} corrects",
                 font=("Helvetica", 10, "bold"),
-                fg="#886600", bg="#fffbe6", anchor="w",
+                fg=_FG, bg=_BG, anchor="w",
             ).pack(fill="x")
             tk.Label(
                 self._banner_frame,
                 text=f"Fichier : {stem}",
                 font=("Helvetica", 9),
-                fg="#886600", bg="#fffbe6", anchor="w",
+                fg=_FG, bg=_BG, anchor="w",
             ).pack(fill="x")
 
         _content_row = 1 if self._banner_frame else 0
