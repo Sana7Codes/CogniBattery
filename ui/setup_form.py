@@ -20,6 +20,24 @@ from typing import Optional, Any
 from tasks.csv_loader import load_trials, task_folder, TASK_FOLDERS
 from core.stimulus import Stimulus
 
+# ── Design tokens ─────────────────────────────────────────────────────────────
+
+C_BG           = "#ffffff"
+C_BG_SECONDARY = "#f7f8fa"
+C_BORDER       = "#e2e5ea"
+C_TEXT         = "#111318"
+C_TEXT_MUTED   = "#6b7280"
+C_TEXT_FAINT   = "#9ca3af"
+C_BLUE         = "#3b7dd8"
+C_NAVY         = "#1a2744"
+C_GREEN        = "#16a34a"
+C_RED          = "#dc2626"
+
+F_BODY  = ("Helvetica Neue", 12)
+F_SMALL = ("Helvetica Neue", 9)
+F_BOLD  = ("Helvetica Neue", 12, "bold")
+F_MONO  = ("Menlo", 13, "bold")
+
 # ── Task display names ────────────────────────────────────────────────────────
 
 TASK_DISPLAY_NAMES: dict[str, str] = {
@@ -53,10 +71,9 @@ class SetupForm:
         self._presets = presets or {}
         self._prev_session_info = prev_session_info
         self._time_confirmed = False
-        self._stim_vars: dict[str, tk.BooleanVar] = {}   # planche_id → BooleanVar
-        self._stim_rows: list[dict] = []                  # raw trials.csv rows
+        self._stim_vars: dict[str, tk.BooleanVar] = {}
+        self._stim_rows: list[dict] = []
 
-        # Familiarity pre-check state (item 1)
         self._familiarity_done: bool = False
         self._familiarity_kept: list[Stimulus] = []
         self._familiarity_excluded_ids: list[str] = []
@@ -69,6 +86,8 @@ class SetupForm:
         self._root = tk.Tk()
         self._root.title("Battery — Configuration de session")
         self._root.resizable(False, False)
+        self._root.configure(bg=C_BG)
+        self._root.minsize(920, 640)
         self._build_ui()
         self._root.mainloop()
         return self.result
@@ -87,174 +106,235 @@ class SetupForm:
             ok    = psi.get("n_correct", 0)
             task  = psi.get("task_display_name", psi.get("task", "—"))
 
-            _BG = "#e8f4fd"
-            _FG = "#1a5276"
-            self._banner_frame = tk.Frame(
-                root, bg=_BG, pady=8, padx=16, relief="groove", bd=1,
-            )
+            _BG_BAN = "#e8f0fc"
+            _FG_BAN = "#1a4a9e"
+            self._banner_frame = tk.Frame(root, bg="#c5d7f7", padx=1, pady=1)
             self._banner_frame.grid(row=0, column=0, columnspan=2,
-                                    sticky="ew", padx=8, pady=(8, 0))
+                                    sticky="ew", padx=12, pady=(10, 0))
+            _inner = tk.Frame(self._banner_frame, bg=_BG_BAN, pady=8, padx=14)
+            _inner.pack(fill="x")
             tk.Label(
-                self._banner_frame,
+                _inner,
                 text=f"Session précédente : {task} — {n} essais, {ok} corrects",
-                font=("Helvetica", 10, "bold"),
-                fg=_FG, bg=_BG, anchor="w",
+                font=F_BOLD, fg=_FG_BAN, bg=_BG_BAN, anchor="w",
             ).pack(fill="x")
             tk.Label(
-                self._banner_frame,
-                text=f"Fichier : {stem}",
-                font=("Helvetica", 9),
-                fg=_FG, bg=_BG, anchor="w",
+                _inner, text=f"Fichier : {stem}",
+                font=F_SMALL, fg=_FG_BAN, bg=_BG_BAN, anchor="w",
             ).pack(fill="x")
 
         _content_row = 1 if self._banner_frame else 0
 
-        # ── Left column: form fields ──────────────────────────────────────────
-        left = ttk.Frame(root, padding=12)
+        # ── Widget helpers ────────────────────────────────────────────────────
+        def _lbl(parent, text, row):
+            tk.Label(
+                parent, text=text,
+                bg=C_BG, fg=C_TEXT, font=F_BODY, anchor="w",
+            ).grid(row=row, column=0, sticky="w", pady=(8, 0), padx=(0, 8))
+
+        def _entry(parent, var, row, width=18):
+            e = tk.Entry(
+                parent, textvariable=var, width=width,
+                bg=C_BG_SECONDARY, fg=C_TEXT, font=F_BODY,
+                insertbackground=C_TEXT, relief="flat",
+                highlightbackground=C_BORDER, highlightthickness=1,
+            )
+            e.grid(row=row, column=1, sticky="w", pady=(8, 0), padx=(8, 0))
+            return e
+
+        # ── Left column ───────────────────────────────────────────────────────
+        left = tk.Frame(root, bg=C_BG, padx=16, pady=12)
         left.grid(row=_content_row, column=0, sticky="nsew")
 
         # Patient ID
-        ttk.Label(left, text="Patient ID *").grid(row=0, column=0, sticky="w")
+        _lbl(left, "Patient ID *", 0)
         self._patient_id = tk.StringVar(value=self._presets.get("patient_id", ""))
         self._patient_id.trace_add("write", self._on_patient_id_changed)
-        ttk.Entry(left, textvariable=self._patient_id, width=20).grid(row=0, column=1, sticky="w", pady=2)
+        _entry(left, self._patient_id, 0)
 
         # Date/time
-        ttk.Label(left, text="Date/Heure *").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        _lbl(left, "Date / Heure *", 1)
         now = datetime.datetime.now().strftime("%Y-%m-%d  %H:%M:%S")
-        self._time_label = ttk.Label(left, text=now, foreground="red", font=("Helvetica", 10, "bold"))
-        self._time_label.grid(row=1, column=1, sticky="w")
+        self._time_label = tk.Label(
+            left, text=now,
+            bg=C_BG, fg=C_RED, font=F_MONO, anchor="w",
+        )
+        self._time_label.grid(row=1, column=1, sticky="w", pady=(8, 0), padx=(8, 0))
         self._update_clock()
 
-        self._confirm_time_btn = ttk.Button(
-            left, text="Heure correcte — continuer", command=self._confirm_time
+        self._confirm_time_btn = tk.Button(
+            left, text="Heure correcte — continuer",
+            command=self._confirm_time,
+            bg=C_BG_SECONDARY, fg=C_TEXT, font=F_BODY,
+            relief="flat",
+            highlightbackground=C_BORDER, highlightthickness=1,
+            padx=12, pady=4, cursor="hand2",
         )
-        self._confirm_time_btn.grid(row=2, column=0, columnspan=2, pady=4)
+        self._confirm_time_btn.grid(row=2, column=0, columnspan=2, pady=(6, 0), sticky="w")
 
-        # Task type
-        ttk.Label(left, text="Tâche *").grid(row=3, column=0, sticky="w", pady=(8, 0))
+        # Task
+        _lbl(left, "Tâche *", 3)
         self._task_code = tk.StringVar(value=self._presets.get("task_code", list(TASK_FOLDERS.keys())[0]))
         task_cb = ttk.Combobox(
             left, textvariable=self._task_code, width=35,
-            values=list(TASK_FOLDERS.keys()), state="readonly"
+            values=list(TASK_FOLDERS.keys()), state="readonly",
         )
-        task_cb.grid(row=3, column=1, sticky="w")
+        task_cb.grid(row=3, column=1, sticky="w", pady=(8, 0), padx=(8, 0))
         task_cb.bind("<<ComboboxSelected>>", self._on_task_changed)
 
         # Electrode
-        ttk.Label(left, text="Électrode *").grid(row=4, column=0, sticky="w", pady=2)
+        _lbl(left, "Électrode *", 4)
         self._electrode = tk.StringVar(value=self._presets.get("electrode", ""))
         self._electrode.trace_add("write", lambda *_: self._update_start_state())
-        ttk.Entry(left, textvariable=self._electrode, width=10).grid(row=4, column=1, sticky="w")
+        _entry(left, self._electrode, 4, width=10)
 
         # Contact
-        ttk.Label(left, text="Contact *").grid(row=5, column=0, sticky="w", pady=2)
+        _lbl(left, "Contact *", 5)
         self._contact = tk.StringVar(value=self._presets.get("contact", ""))
         self._contact.trace_add("write", lambda *_: self._update_start_state())
-        ttk.Entry(left, textvariable=self._contact, width=10).grid(row=5, column=1, sticky="w")
+        _entry(left, self._contact, 5, width=10)
 
         # Intensity
-        ttk.Label(left, text="Intensité (mA) *").grid(row=6, column=0, sticky="w", pady=2)
+        _lbl(left, "Intensité (mA) *", 6)
         self._intensity = tk.StringVar(value=self._presets.get("intensity", "1.0"))
-        ttk.Entry(left, textvariable=self._intensity, width=10).grid(row=6, column=1, sticky="w")
+        _entry(left, self._intensity, 6, width=10)
 
         # Duration
-        ttk.Label(left, text="Durée stim (s) *").grid(row=7, column=0, sticky="w", pady=2)
+        _lbl(left, "Durée stim (s) *", 7)
         self._duration = tk.StringVar(value=self._presets.get("duration", "3.0"))
-        ttk.Entry(left, textvariable=self._duration, width=10).grid(row=7, column=1, sticky="w")
+        _entry(left, self._duration, 7, width=10)
 
         # Progression mode
-        ttk.Label(left, text="Mode progression *").grid(row=8, column=0, sticky="w", pady=(8, 0))
+        _lbl(left, "Mode progression *", 8)
         self._prog_mode = tk.StringVar(value=self._presets.get("progression_mode", "PatientTouch"))
         prog_cb = ttk.Combobox(
             left, textvariable=self._prog_mode, width=20,
-            values=["PatientTouch", "ClinicianAction", "Timer"], state="readonly"
+            values=["PatientTouch", "ClinicianAction", "Timer"], state="readonly",
         )
-        prog_cb.grid(row=8, column=1, sticky="w")
+        prog_cb.grid(row=8, column=1, sticky="w", pady=(8, 0), padx=(8, 0))
         prog_cb.bind("<<ComboboxSelected>>", self._on_prog_changed)
 
-        ttk.Label(left, text="Délai timer (s)").grid(row=9, column=0, sticky="w", pady=2)
+        # Timer delay
+        _lbl(left, "Délai timer (s)", 9)
         self._timer_delay = tk.StringVar(value=self._presets.get("timer_delay", "5.0"))
-        self._timer_entry = ttk.Entry(left, textvariable=self._timer_delay, width=10)
-        self._timer_entry.grid(row=9, column=1, sticky="w")
+        self._timer_entry = _entry(left, self._timer_delay, 9, width=10)
         self._on_prog_changed()
 
-        # Stim signal key
-        ttk.Label(left, text="Touche STIM").grid(row=10, column=0, sticky="w", pady=2)
+        # Stim key
+        _lbl(left, "Touche STIM", 10)
         self._stim_key = tk.StringVar(value=self._presets.get("stim_key", "f12"))
-        ttk.Entry(left, textvariable=self._stim_key, width=10).grid(row=10, column=1, sticky="w")
+        _entry(left, self._stim_key, 10, width=10)
 
-        # Item 3: STIM key reminder text
-        self._stim_reminder = ttk.Label(
+        self._stim_reminder = tk.Label(
             left,
-            text="⌨ Cette touche déclenche la stimulation en session.",
-            foreground="#888888",
-            font=("Helvetica", 8),
+            text="⌨  Cette touche déclenche la stimulation en session.",
+            bg=C_BG, fg=C_TEXT_FAINT, font=F_SMALL, anchor="w",
         )
-        self._stim_reminder.grid(row=11, column=0, columnspan=2, sticky="w", padx=4)
+        self._stim_reminder.grid(row=11, column=0, columnspan=2, sticky="w", pady=(2, 0))
 
-        # Item 1: Familiarity pre-check button (FFP tasks only)
-        self._precheck_btn = ttk.Button(
+        # Familiarity precheck (FFP only)
+        self._precheck_btn = tk.Button(
             left, text="Vérification de familiarité…",
             command=self._do_precheck,
+            bg=C_BG_SECONDARY, fg=C_TEXT, font=F_BODY,
+            relief="flat", highlightbackground=C_BORDER, highlightthickness=1,
+            padx=12, pady=4, cursor="hand2",
         )
-        self._precheck_btn.grid(row=12, column=0, columnspan=2, pady=(6, 2))
+        self._precheck_btn.grid(row=12, column=0, columnspan=2, pady=(8, 2), sticky="w")
 
-        self._precheck_status = ttk.Label(
-            left, text="", foreground="#888888", font=("Helvetica", 8)
+        self._precheck_status = tk.Label(
+            left, text="",
+            bg=C_BG, fg=C_TEXT_MUTED, font=F_SMALL,
         )
-        self._precheck_status.grid(row=13, column=0, columnspan=2)
+        self._precheck_status.grid(row=13, column=0, columnspan=2, sticky="w")
 
-        # Show precheck controls only for FFP tasks
         if self._task_code.get() not in _FFP_TASKS:
             self._precheck_btn.grid_remove()
             self._precheck_status.grid_remove()
 
         # Order
-        ttk.Label(left, text="Ordre stimuli").grid(row=14, column=0, sticky="w", pady=(8, 0))
+        _lbl(left, "Ordre stimuli", 14)
         self._order = tk.StringVar(value=self._presets.get("order", "random"))
-        order_frame = ttk.Frame(left)
-        order_frame.grid(row=14, column=1, sticky="w")
-        ttk.Radiobutton(order_frame, text="Aléatoire", variable=self._order, value="random").pack(side="left")
-        ttk.Radiobutton(order_frame, text="Fixe",     variable=self._order, value="fixed").pack(side="left")
+        order_frame = tk.Frame(left, bg=C_BG)
+        order_frame.grid(row=14, column=1, sticky="w", pady=(8, 0), padx=(8, 0))
+        for text, val in [("Aléatoire", "random"), ("Fixe", "fixed")]:
+            tk.Radiobutton(
+                order_frame, text=text,
+                variable=self._order, value=val,
+                bg=C_BG, fg=C_TEXT, font=F_BODY,
+                activebackground=C_BG_SECONDARY, selectcolor=C_BG,
+                relief="flat",
+            ).pack(side="left", padx=(0, 12))
 
-        # Start button
-        self._start_btn = ttk.Button(
-            left, text="Démarrer la session", command=self._on_start,
-            state="disabled"
+        # Start + Quit
+        btn_bar = tk.Frame(left, bg=C_BG)
+        btn_bar.grid(row=15, column=0, columnspan=2, pady=(20, 0), sticky="w")
+
+        self._start_btn = tk.Button(
+            btn_bar, text="Démarrer la session ▶",
+            command=self._on_start,
+            bg=C_NAVY, fg="white", font=F_BOLD,
+            relief="flat", activebackground="#2a3d6e",
+            padx=20, pady=8, cursor="hand2",
+            state="disabled",
         )
-        self._start_btn.grid(row=15, column=0, columnspan=2, pady=(16, 4))
+        self._start_btn.pack(side="left")
 
-        self._status_label = ttk.Label(left, text="⚠ Confirmez l'heure pour continuer.", foreground="orange")
-        self._status_label.grid(row=16, column=0, columnspan=2)
+        self._status_label = tk.Label(
+            left, text="⚠  Confirmez l'heure pour continuer.",
+            bg=C_BG, fg=C_RED, font=F_SMALL,
+        )
+        self._status_label.grid(row=16, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
-        ttk.Button(
-            left, text="Quitter", command=self._on_quit,
-        ).grid(row=17, column=0, columnspan=2, pady=(12, 4))
+        tk.Button(
+            left, text="Quitter",
+            command=self._on_quit,
+            bg=C_BG, fg=C_TEXT_MUTED, font=F_BODY,
+            relief="flat",
+            highlightbackground=C_BORDER, highlightthickness=1,
+            padx=16, pady=6, cursor="hand2",
+        ).grid(row=17, column=0, columnspan=2, pady=(10, 4), sticky="w")
 
         # ── Right column: stimulus list ───────────────────────────────────────
-        right = ttk.LabelFrame(root, text="Stimuli", padding=8)
-        right.grid(row=_content_row, column=1, sticky="nsew", padx=(0, 8), pady=8)
+        right = tk.Frame(
+            root, bg=C_BG, padx=8, pady=12,
+            highlightbackground=C_BORDER, highlightthickness=1,
+        )
+        right.grid(row=_content_row, column=1, sticky="nsew", padx=(0, 12), pady=12)
 
-        self._cb_label = ttk.Label(right, text="")
-        self._cb_label.pack(anchor="w")
+        self._cb_label = tk.Label(
+            right, text="",
+            bg=C_BG, fg=C_TEXT_MUTED, font=F_SMALL, anchor="w",
+        )
+        self._cb_label.pack(anchor="w", pady=(0, 6))
 
-        canvas = tk.Canvas(right, width=360, height=480)
+        canvas = tk.Canvas(
+            right, width=360, height=480,
+            bg=C_BG, highlightthickness=0,
+        )
         sb = ttk.Scrollbar(right, orient="vertical", command=canvas.yview)
-        self._stim_inner = ttk.Frame(canvas)
+        self._stim_inner = tk.Frame(canvas, bg=C_BG)
         self._stim_inner.bind(
             "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")),
         )
         canvas.create_window((0, 0), window=self._stim_inner, anchor="nw")
         canvas.configure(yscrollcommand=sb.set)
         canvas.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
 
-        btn_row = ttk.Frame(right)
-        btn_row.pack(fill="x", pady=(4, 0))
-        ttk.Button(btn_row, text="Tout sélectionner",   command=self._select_all).pack(side="left")
-        ttk.Button(btn_row, text="Tout désélectionner", command=self._deselect_all).pack(side="left", padx=4)
+        btn_row = tk.Frame(right, bg=C_BG)
+        btn_row.pack(fill="x", pady=(6, 0))
+        for text, cmd in [
+            ("Tout sélectionner",   self._select_all),
+            ("Tout désélectionner", self._deselect_all),
+        ]:
+            tk.Button(
+                btn_row, text=text, command=cmd,
+                bg=C_BG_SECONDARY, fg=C_TEXT, font=F_SMALL,
+                relief="flat", highlightbackground=C_BORDER, highlightthickness=1,
+                padx=8, pady=3, cursor="hand2",
+            ).pack(side="left", padx=(0, 4))
 
         self._load_stimuli()
 
@@ -268,7 +348,7 @@ class SetupForm:
 
     def _confirm_time(self) -> None:
         self._time_confirmed = True
-        self._time_label.config(foreground="green")
+        self._time_label.config(fg=C_GREEN)
         self._confirm_time_btn.config(state="disabled", text="✓ Heure confirmée")
         self._update_start_state()
 
@@ -284,7 +364,10 @@ class SetupForm:
         try:
             rows = load_trials(task_code)
         except Exception as exc:
-            ttk.Label(self._stim_inner, text=f"Erreur: {exc}").pack()
+            tk.Label(
+                self._stim_inner, text=f"Erreur: {exc}",
+                bg=C_BG, fg=C_RED, font=F_BODY,
+            ).pack()
             return
 
         folder = task_folder(task_code)
@@ -295,20 +378,21 @@ class SetupForm:
             var = tk.BooleanVar(value=True)
             self._stim_vars[stim.planche_id] = var
 
-            # Item 4: human-readable name
             label = getattr(stim, "stimulus_label", None) or stim.planche_id
             if label and label != stim.planche_id:
                 display_text = f"{label}  [{stim.planche_id}]"
             else:
                 display_text = stim.planche_id
 
-            cb = ttk.Checkbutton(
+            tk.Checkbutton(
                 self._stim_inner,
                 text=display_text,
                 variable=var,
                 command=self._on_stim_selection_changed,
-            )
-            cb.pack(anchor="w")
+                bg=C_BG, fg=C_TEXT, font=F_BODY,
+                selectcolor=C_BG, activebackground=C_BG_SECONDARY,
+                relief="flat", anchor="w",
+            ).pack(anchor="w")
 
         self._update_cb_label()
 
@@ -319,7 +403,6 @@ class SetupForm:
         folder = task_folder(task_code)
         selected = [pid for pid, var in self._stim_vars.items() if var.get()]
 
-        # Item 2: count left/center/right
         left_n = center_n = right_n = 0
         for row in self._stim_rows:
             pid = Path(row["filename"]).stem
@@ -350,13 +433,15 @@ class SetupForm:
 
     def _on_stim_selection_changed(self) -> None:
         self._update_cb_label()
-        # Reset precheck if selection changes after it was done
         if self._familiarity_done:
             self._familiarity_done = False
             self._familiarity_kept = []
             self._familiarity_excluded_ids = []
             self._precheck_btn.config(text="Vérification de familiarité…")
-            self._precheck_status.config(text="Sélection modifiée — relancez la vérification.", foreground="orange")
+            self._precheck_status.config(
+                text="Sélection modifiée — relancez la vérification.",
+                fg=C_RED,
+            )
             self._update_start_state()
 
     def _select_all(self) -> None:
@@ -372,7 +457,6 @@ class SetupForm:
     # ── Familiarity pre-check (item 1) ────────────────────────────────────────
 
     def _do_precheck(self) -> None:
-        """Run familiarity pre-check on currently selected stimuli (FFP only)."""
         task_code = self._task_code.get()
         folder = task_folder(task_code)
         selected_ids = {pid for pid, var in self._stim_vars.items() if var.get()}
@@ -393,7 +477,7 @@ class SetupForm:
         self._precheck_btn.config(text="✓ Vérification faite — relancer")
         self._precheck_status.config(
             text=f"{n_kept} familiers retenus, {n_excl} exclus.",
-            foreground="#00aa44",
+            fg=C_GREEN,
         )
         self._update_start_state()
 
@@ -402,7 +486,6 @@ class SetupForm:
     def _on_task_changed(self, _event=None) -> None:
         task_code = self._task_code.get()
 
-        # Reset familiarity state when task changes
         self._familiarity_done = False
         self._familiarity_kept = []
         self._familiarity_excluded_ids = []
@@ -428,7 +511,6 @@ class SetupForm:
 
     def _on_patient_id_changed(self, *_) -> None:
         self._update_start_state()
-        # Hide the previous-session banner once the patient ID differs
         if (self._banner_frame is not None
                 and self._banner_prev_patient is not None
                 and self._patient_id.get() != self._banner_prev_patient):
@@ -436,7 +518,7 @@ class SetupForm:
 
     def _on_quit(self) -> None:
         """Quitter button — return None to run.py, which exits the app."""
-        self._root.destroy()   # self.result stays None
+        self._root.destroy()
 
     def _update_start_state(self) -> None:
         task_code = self._task_code.get()
@@ -449,18 +531,20 @@ class SetupForm:
             and bool(self._contact.get().strip())
             and (not needs_precheck or self._familiarity_done)
         )
-        self._start_btn.config(state="normal" if ready else "disabled")
         if ready:
-            self._status_label.config(text="Prêt à démarrer.", foreground="green")
-        elif not self._time_confirmed:
-            self._status_label.config(text="⚠ Confirmez l'heure pour continuer.", foreground="orange")
-        elif needs_precheck and not self._familiarity_done:
-            self._status_label.config(text="⚠ Lancez la vérification de familiarité.", foreground="orange")
+            self._start_btn.config(state="normal", bg=C_NAVY, fg="white")
         else:
-            self._status_label.config(text="⚠ Remplissez tous les champs obligatoires.", foreground="orange")
+            self._start_btn.config(state="disabled", bg=C_BG_SECONDARY, fg=C_TEXT_MUTED)
+        if ready:
+            self._status_label.config(text="Prêt à démarrer.", fg=C_GREEN)
+        elif not self._time_confirmed:
+            self._status_label.config(text="⚠  Confirmez l'heure pour continuer.", fg=C_RED)
+        elif needs_precheck and not self._familiarity_done:
+            self._status_label.config(text="⚠  Lancez la vérification de familiarité.", fg=C_RED)
+        else:
+            self._status_label.config(text="⚠  Remplissez tous les champs obligatoires.", fg=C_RED)
 
     def _on_start(self) -> None:
-        # Validate numeric fields
         try:
             intensity = float(self._intensity.get())
             duration  = float(self._duration.get())
@@ -478,9 +562,7 @@ class SetupForm:
 
         task_code = self._task_code.get()
 
-        # Build selected stimuli list
         if task_code in _FFP_TASKS:
-            # Use pre-check results (required before start is enabled)
             selected_stimuli = self._familiarity_kept
             excluded_ids = self._familiarity_excluded_ids
             if not selected_stimuli:
@@ -519,11 +601,6 @@ class SetupForm:
         self,
         stimuli: list[Stimulus],
     ) -> tuple[list[Stimulus], list[str]]:
-        """
-        Show each face image; clinician clicks Familier / Non familier.
-        Non-familiar faces are excluded.
-        Returns (kept_stimuli, excluded_planche_ids).
-        """
         try:
             from PIL import Image as PILImage, ImageTk
         except ImportError:
@@ -539,18 +616,19 @@ class SetupForm:
 
         win = tk.Toplevel(self._root)
         win.title("Pré-vérification de familiarité")
+        win.configure(bg=C_BG)
         win.grab_set()
 
-        img_label = tk.Label(win)
+        img_label = tk.Label(win, bg=C_BG)
         img_label.pack(pady=8)
 
-        name_label = ttk.Label(win, font=("Helvetica", 14, "bold"))
+        name_label = tk.Label(win, bg=C_BG, fg=C_TEXT, font=F_BOLD)
         name_label.pack()
 
-        progress_label = ttk.Label(win)
+        progress_label = tk.Label(win, bg=C_BG, fg=C_TEXT_MUTED, font=F_SMALL)
         progress_label.pack()
 
-        result_var: list[str] = []  # mutable container for button callbacks
+        result_var: list[str] = []
 
         def on_familiar():
             result_var.clear()
@@ -562,10 +640,18 @@ class SetupForm:
             result_var.append("unfamiliar")
             win.quit()
 
-        btn_frame = ttk.Frame(win)
+        btn_frame = tk.Frame(win, bg=C_BG)
         btn_frame.pack(pady=8)
-        ttk.Button(btn_frame, text="Familier",     command=on_familiar).pack(side="left", padx=8)
-        ttk.Button(btn_frame, text="Non familier", command=on_unfamiliar).pack(side="left", padx=8)
+        for text, cmd, bg, fg in [
+            ("Familier",     on_familiar,   C_NAVY,         "white"),
+            ("Non familier", on_unfamiliar, C_BG_SECONDARY, C_TEXT),
+        ]:
+            tk.Button(
+                btn_frame, text=text, command=cmd,
+                bg=bg, fg=fg, font=F_BODY,
+                relief="flat", padx=16, pady=6, cursor="hand2",
+                highlightbackground=C_BORDER, highlightthickness=1,
+            ).pack(side="left", padx=8)
 
         for i, stim in enumerate(stimuli):
             progress_label.config(text=f"{i + 1} / {len(stimuli)}")
@@ -576,13 +662,13 @@ class SetupForm:
                 pil_img.thumbnail((400, 400))
                 tk_img = ImageTk.PhotoImage(pil_img)
                 img_label.config(image=tk_img)
-                img_label.image = tk_img  # prevent GC
+                img_label.image = tk_img
             except Exception:
-                img_label.config(image="", text=stim.planche_id)
+                img_label.config(image="", text=stim.planche_id, fg=C_TEXT)
 
             result_var.clear()
             win.deiconify()
-            win.mainloop()   # blocks until a button is clicked
+            win.mainloop()
 
             if result_var and result_var[0] == "familiar":
                 stim.is_familiar = True
