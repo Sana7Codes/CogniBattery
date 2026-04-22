@@ -293,8 +293,8 @@ class ClinicianApp:
             tk.Label(
                 right_panel, text=title,
                 font=("Helvetica Neue", 9), fg=C_TEXT_FAINT, bg=C_BG,
-                anchor="w", padx=12, pady=(8, 2),
-            ).pack(fill="x")
+                anchor="w", padx=12, pady=4,
+            ).pack(fill="x", pady=(4, 0))
 
         def _divider() -> None:
             tk.Frame(right_panel, bg=C_BORDER, height=1).pack(fill="x", padx=8)
@@ -332,9 +332,9 @@ class ClinicianApp:
         self._timer_lbl = tk.Label(
             essai_box, text="",
             font=("Helvetica Neue", 10), fg=C_TEXT_MUTED, bg=C_BG_SECONDARY,
-            anchor="w", padx=10, pady=(0, 4),
+            anchor="w", padx=10, pady=2,
         )
-        self._timer_lbl.pack(fill="x")
+        self._timer_lbl.pack(fill="x", pady=(0, 4))
 
         _divider()
 
