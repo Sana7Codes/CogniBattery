@@ -1342,3 +1342,12 @@ def run_clinician_process(
     app._root.attributes("-topmost", True)
     app._root.update()
     app.run()
+
+    # Release queue references so the subprocess's resource_tracker does not
+    # report the shared semaphores as leaked when this process exits.
+    for _q in (from_patient_q, to_patient_q):
+        try:
+            _q.cancel_join_thread()
+            _q.close()
+        except Exception:
+            pass
