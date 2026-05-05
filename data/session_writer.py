@@ -280,61 +280,251 @@ def write_excel_report(
     n_per, ok_per, mtr_per = _ep("per-stim")
     n_post,ok_post,mtr_post= _ep("post-stim")
 
-    # ── Sheet 1: Résumé ───────────────────────────────────────────────────────
+    # ── Sheet 1: Résumé (full clinical summary) ──────────────────────────────
+    import statistics as _statistics
+
     ws1 = wb.active
     ws1.title = "Résumé"
+    ws1.sheet_view.showGridLines = False
 
-    hdr_fill = _fill("1a1a2e")
-    hdr_font = _font(bold=True, color="e0e0e0", size=12)
+    hdr_fill = _fill("1a1a2e")   # kept for later sheets
 
-    def _s1_row(label, value):
-        r = ws1.max_row + 1
-        ws1.cell(r, 1, label).font  = _font(bold=True)
-        ws1.cell(r, 1).fill         = _fill("f0f0f0")
-        ws1.cell(r, 2, value)
-        ws1.cell(r, 1).border = ws1.cell(r, 2).border = _border()
+    # ── Compute additional stats ──────────────────────────────────────────────
+    ts_first  = events[0].time_s  if events else 0.0
+    ts_last   = events[-1].time_s if events else 0.0
+    dur_secs  = max(0.0, ts_last - ts_first)
+    dur_str   = f"{int(dur_secs // 60)}m {int(dur_secs % 60)}s"
 
-    def _s1_hdr(text):
-        r = ws1.max_row + 1
+    tr_median = round(_statistics.median(trs_all), 3) if trs_all else None
+    tr_min    = round(min(trs_all), 3)                if trs_all else None
+    tr_max    = round(max(trs_all), 3)                if trs_all else None
+
+    pct_correct = round(n_correct / n_trials * 100, 1) if n_trials else 0.0
+    acc_color   = ("16a34a" if pct_correct >= 70
+                   else ("d97706" if pct_correct >= 40 else "dc2626"))
+    n_incorrect = sum(1 for ev in resp_evs if ev.correct == "No")
+
+    all_trial_essais = {ev.essai for ev in events
+                        if ev.event == EventType.TRIAL_START and ev.essai is not None}
+    responded_essais = {ev.essai for ev in events
+                        if ev.event == EventType.RESPONSE and ev.essai is not None}
+    skipped_essais   = {ev.essai for ev in events
+                        if ev.event == EventType.STIMULUS_SKIP and ev.essai is not None}
+    excl_essais      = {ev.essai for ev in events
+                        if ev.event == EventType.STIMULUS_EXCLUDE and ev.essai is not None}
+    n_exclu          = len(excl_essais)
+    n_timeout        = len(all_trial_essais - responded_essais - skipped_essais - excl_essais)
+
+    stim_detail_windows: list[dict] = []
+    _open_sd: Optional[dict] = None
+    for ev in events:
+        if ev.event == EventType.STIM_START:
+            _open_sd = {"start_s": ev.time_s, "start_iso": ev.time_iso,
+                        "notes": ev.notes or ""}
+        elif ev.event == EventType.STIM_END and _open_sd is not None:
+            _open_sd.update(end_s=ev.time_s, end_iso=ev.time_iso)
+            stim_detail_windows.append(_open_sd)
+            _open_sd = None
+    if _open_sd is not None:
+        last_ev = events[-1] if events else None
+        _open_sd.update(end_s=last_ev.time_s if last_ev else 0.0,
+                        end_iso=last_ev.time_iso if last_ev else "")
+        stim_detail_windows.append(_open_sd)
+
+    clinician_notes = ""
+    for ev in events:
+        if ev.event == EventType.SESSION_NOTES:
+            clinician_notes = ev.notes or ""
+            break
+
+    # ── Sheet 1 row-counter and layout helpers ────────────────────────────────
+    _s1_r = [0]
+
+    def _nr() -> int:
+        _s1_r[0] += 1
+        return _s1_r[0]
+
+    C1_NAVY  = "1a2744"
+    C1_LABEL = "6b7280"
+    C1_VALUE = "111318"
+
+    def _s1_section_hdr(text: str) -> None:
+        r = _nr()
+        ws1.row_dimensions[r].height = 20
         c = ws1.cell(r, 1, text)
-        c.font = hdr_font
-        c.fill = hdr_fill
-        ws1.merge_cells(f"A{r}:B{r}")
-        c.alignment = _center()
+        c.font      = Font(bold=True, color="FFFFFF", size=11)
+        c.fill      = PatternFill("solid", fgColor=C1_NAVY)
+        c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        ws1.merge_cells(start_row=r, start_column=1, end_row=r, end_column=4)
 
-    _s1_hdr("RÉSUMÉ DE SESSION")
-    _s1_row("Tâche",         session.task_display_name)
-    _s1_row("Patient",       session.patient_id)
-    _s1_row("Date",          session.session_date)
-    _s1_row("Heure début",   session.session_start_time)
-    _s1_row("Électrode",     p.electrode)
-    _s1_row("Contact",       p.contact)
-    _s1_row("Intensité (mA)",p.intensity_ma)
-    _s1_row("Durée (s)",     p.duration_s)
-    ws1.append([])
-    _s1_hdr("RÉSULTATS")
-    _s1_row("Essais",        n_trials)
-    _s1_row("Corrects",      n_correct)
-    _s1_row("Taux (%)",      round(n_correct/n_trials*100, 1) if n_trials else "")
-    _s1_row("TR moyen (s)",  round(mean_tr, 4) if mean_tr is not None else "")
-    _s1_row("Passés",        n_skipped)
-    _s1_row("Stimulations",  n_stim)
+    def _s1_kv(label: str, value, value_bold: bool = False,
+               value_color: str = "") -> None:
+        r = _nr()
+        ws1.row_dimensions[r].height = 16
+        la = ws1.cell(r, 1, label)
+        la.font      = Font(size=11, color=C1_LABEL)
+        la.alignment = Alignment(horizontal="left", vertical="center", indent=2)
+        vl = ws1.cell(r, 2, value)
+        vl.font      = Font(size=11, color=value_color or C1_VALUE, bold=value_bold)
+        vl.alignment = Alignment(horizontal="left", vertical="center")
 
+    def _s1_spacer() -> None:
+        r = _nr()
+        ws1.row_dimensions[r].height = 8
+        ws1.cell(r, 1, " ")   # empty placeholder so max_row advances
+
+    # ── Section 1: Session info ───────────────────────────────────────────────
+    _s1_section_hdr("RÉSUMÉ DE SESSION")
+    _s1_kv("Patient",          session.patient_id)
+    _s1_kv("Tâche",            session.task_display_name)
+    _s1_kv("Date",             session.session_date)
+    _s1_kv("Heure début",      session.session_start_time)
+    _s1_kv("Durée session",    dur_str)
+    _s1_kv("Électrode",        p.electrode)
+    _s1_kv("Contact",          p.contact)
+    _s1_kv("Intensité",        f"{p.intensity_ma} mA")
+    _s1_kv("Durée stim",       f"{p.duration_s} s")
+    _s1_kv("Mode progression", session.progression_mode)
+    _s1_kv("Version",          _get_version())
+
+    # ── Section 2: Global results ─────────────────────────────────────────────
+    _s1_spacer()
+    _s1_section_hdr("RÉSULTATS GLOBAUX")
+    _s1_kv("Essais total",  n_trials,   value_bold=True)
+    _s1_kv(
+        "Corrects",
+        f"{n_correct}  ({pct_correct}%)",
+        value_bold=True, value_color=acc_color,
+    )
+    n_inc_pct = round(n_incorrect / n_trials * 100, 1) if n_trials else 0
+    _s1_kv("Incorrects",    f"{n_incorrect}  ({n_inc_pct}%)", value_bold=True)
+    _s1_kv("TR moyen",  f"{round(mean_tr, 2)} s"  if mean_tr   is not None else "—")
+    _s1_kv("TR médian", f"{tr_median} s"           if tr_median is not None else "—")
+    _s1_kv("TR min",    f"{tr_min} s"              if tr_min    is not None else "—")
+    _s1_kv("TR max",    f"{tr_max} s"              if tr_max    is not None else "—")
+    _s1_kv("Passés",    n_skipped,  value_bold=True)
+    _s1_kv("Exclus",    n_exclu,    value_bold=True)
+    _s1_kv("Timeouts",  n_timeout,  value_bold=True)
+
+    # ── Section 3: Stimulations ───────────────────────────────────────────────
     if n_stim > 0:
-        ws1.append([])
-        _s1_hdr("PAR ÉPOQUE")
-        _s1_row("Essais pré-stim",  n_pre)
-        _s1_row("Corrects pré-stim",ok_pre)
-        _s1_row("TR moyen pré (s)", mtr_pre or "")
-        _s1_row("Essais per-stim",  n_per)
-        _s1_row("Corrects per-stim",ok_per)
-        _s1_row("TR moyen per (s)", mtr_per or "")
-        _s1_row("Essais post-stim", n_post)
-        _s1_row("Corrects post-stim",ok_post)
-        _s1_row("TR moyen post (s)",mtr_post or "")
+        _s1_spacer()
+        _s1_section_hdr("STIMULATIONS")
+        _s1_kv("Événements STIM", n_stim, value_bold=True)
+        _s1_spacer()
 
-    ws1.column_dimensions["A"].width = 24
-    ws1.column_dimensions["B"].width = 22
+        # Epoch sub-table header
+        r_ep = _nr()
+        ws1.row_dimensions[r_ep].height = 16
+        for ci, txt in enumerate(
+            ["Époque", "N essais", "Corrects (%)", "TR moyen (s)"], start=1
+        ):
+            c = ws1.cell(r_ep, ci, txt)
+            c.font      = Font(bold=True, size=10, color="FFFFFF")
+            c.fill      = PatternFill("solid", fgColor="334155")
+            c.alignment = Alignment(horizontal="center", vertical="center")
+
+        # Epoch data rows
+        epoch_rows = [
+            ("Pré-stim",  n_pre,  ok_pre,  mtr_pre,  "FFFFFF", False),
+            ("Per-stim",  n_per,  ok_per,  mtr_per,  "fee2e2", True),
+            ("Post-stim", n_post, ok_post, mtr_post, "e0f2fe", False),
+        ]
+        for ep_name, ep_n, ep_ok, ep_mtr, ep_hex, ep_bold in epoch_rows:
+            r_ep = _nr()
+            ws1.row_dimensions[r_ep].height = 16
+            ep_fill = PatternFill("solid", fgColor=ep_hex)
+            ep_pct  = round(ep_ok / ep_n * 100, 1) if ep_n else 0
+            ep_vals = [
+                ep_name,
+                ep_n if ep_n else 0,
+                f"{ep_ok}  ({ep_pct}%)" if ep_n else "—",
+                f"{ep_mtr} s" if ep_mtr is not None else "—",
+            ]
+            for ci, val in enumerate(ep_vals, start=1):
+                c = ws1.cell(r_ep, ci, val)
+                c.font      = Font(size=10, bold=ep_bold, color=C1_VALUE)
+                c.fill      = ep_fill
+                c.alignment = Alignment(horizontal="center", vertical="center")
+
+        # Stim detail blocks
+        if stim_detail_windows:
+            _s1_spacer()
+            _s1_section_hdr("STIMULATIONS DÉTAIL")
+            for wi, wd in enumerate(stim_detail_windows):
+                elec_m = re.search(r'Electrode=(\S+)', wd["notes"])
+                cont_m = re.search(r'Contact=(\S+)',   wd["notes"])
+                inty_m = re.search(r'Intensity=(\S+)', wd["notes"])
+                dura_m = re.search(r'Duration=(\S+)',  wd["notes"])
+                elec_v = elec_m.group(1) if elec_m else p.electrode
+                cont_v = cont_m.group(1) if cont_m else p.contact
+                inty_v = inty_m.group(1) if inty_m else f"{p.intensity_ma}mA"
+                dura_v = dura_m.group(1) if dura_m else f"{p.duration_s}s"
+                s_hms  = (wd["start_iso"].split("T")[-1][:8]
+                          if "T" in wd["start_iso"] else wd["start_iso"])
+                e_hms  = (wd["end_iso"].split("T")[-1][:8]
+                          if "T" in wd["end_iso"] else wd["end_iso"])
+                sub_fill = PatternFill("solid", fgColor="f0f4ff")
+
+                r_s = _nr()
+                ws1.row_dimensions[r_s].height = 15
+                c = ws1.cell(r_s, 1, f"  Stimulation {wi + 1}")
+                c.font      = Font(bold=True, size=11, color=C1_NAVY)
+                c.fill      = sub_fill
+                c.alignment = Alignment(horizontal="left", vertical="center")
+                ws1.merge_cells(start_row=r_s, start_column=1,
+                                end_row=r_s, end_column=4)
+
+                r_s = _nr()
+                ws1.row_dimensions[r_s].height = 14
+                c = ws1.cell(
+                    r_s, 1,
+                    f"  Début: t={wd['start_s']:.2f}s ({s_hms})   "
+                    f"Fin: t={wd['end_s']:.2f}s ({e_hms})",
+                )
+                c.font      = Font(size=10, color=C1_LABEL)
+                c.fill      = sub_fill
+                c.alignment = Alignment(horizontal="left", vertical="center")
+                ws1.merge_cells(start_row=r_s, start_column=1,
+                                end_row=r_s, end_column=4)
+
+                r_s = _nr()
+                ws1.row_dimensions[r_s].height = 14
+                c = ws1.cell(
+                    r_s, 1,
+                    f"  Électrode {elec_v} | Contact {cont_v} | {inty_v} | {dura_v}",
+                )
+                c.font      = Font(size=10, color=C1_LABEL)
+                c.fill      = sub_fill
+                c.alignment = Alignment(horizontal="left", vertical="center")
+                ws1.merge_cells(start_row=r_s, start_column=1,
+                                end_row=r_s, end_column=4)
+
+                if wi < len(stim_detail_windows) - 1:
+                    _s1_spacer()
+
+    # ── Section 4: Clinician notes ────────────────────────────────────────────
+    _s1_spacer()
+    _s1_section_hdr("NOTES CLINICIEN")
+    r_note = _nr()
+    note_text = clinician_notes or "Aucune note"
+    ws1.row_dimensions[r_note].height = max(40, min(120, len(note_text) // 3 + 20))
+    c = ws1.cell(r_note, 1, note_text)
+    c.font      = Font(
+        size=11,
+        color=C1_VALUE if clinician_notes else C1_LABEL,
+        italic=not bool(clinician_notes),
+    )
+    c.alignment = Alignment(
+        horizontal="left", vertical="top", wrap_text=True, indent=2,
+    )
+    ws1.merge_cells(start_row=r_note, start_column=1,
+                    end_row=r_note, end_column=4)
+
+    ws1.column_dimensions["A"].width = 22
+    ws1.column_dimensions["B"].width = 14
+    ws1.column_dimensions["C"].width = 16
+    ws1.column_dimensions["D"].width = 14
 
     # ── Sheet 2: Journal des essais ──────────────────────────────────────────
     ws2 = wb.create_sheet("Journal des essais")
