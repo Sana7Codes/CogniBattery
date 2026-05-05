@@ -199,6 +199,20 @@ def _format_stimulus_label(stim_id: str, task_code: str) -> str:
     return stim_id
 
 
+def _expected_response(stim_id: str, task_code: str) -> str:
+    """Extract expected/target response from stimulus ID."""
+    if not stim_id:
+        return ""
+    task = task_code.upper()
+    if task in ("MUF_V1", "MUF_V2"):
+        m = re.match(r'.*_target(LEFT|RIGHT|CENTRE|CENTER)_', stim_id, re.IGNORECASE)
+        if m:
+            side_map = {"LEFT": "gauche", "RIGHT": "droite",
+                        "CENTRE": "centre", "CENTER": "centre"}
+            return side_map.get(m.group(1).upper(), m.group(1).lower())
+    return ""
+
+
 # ─── Excel report ─────────────────────────────────────────────────────────────
 
 def write_excel_report(
@@ -322,79 +336,116 @@ def write_excel_report(
     ws1.column_dimensions["A"].width = 24
     ws1.column_dimensions["B"].width = 22
 
-    # ── Sheet 2: Journal d'événements ────────────────────────────────────────
-    ws2 = wb.create_sheet("Journal d'événements")
-    cols2 = ["Time_s", "Time_iso", "Événement", "Essai",
-             "Stimulus", "Réponse", "Correct", "TR (s)", "Époque", "Notes"]
-    ws2.append(cols2)
+    # ── Sheet 2: Journal des essais ──────────────────────────────────────────
+    ws2 = wb.create_sheet("Journal des essais")
+    trial_cols = [
+        "Essai", "Stimulus", "Heure IMAGE", "Temps IMAGE (s)",
+        "Réponse", "Attendue", "Correct", "TR (s)", "Époque", "STIM active",
+    ]
+    ws2.append(trial_cols)
     for cell in ws2[1]:
-        cell.font      = _font(bold=True, color="e0e0e0")
-        cell.fill      = hdr_fill
+        cell.font      = _font(bold=True, color="FFFFFF")
+        cell.fill      = _fill("1a2744")
         cell.alignment = _center()
         cell.border    = _border()
-
-    ev_type_fr = {
-        "SESSION_START": "Début session", "TRIAL_START": "Début essai",
-        "IMAGE_ON": "Image affichée", "RESPONSE": "Réponse",
-        "STIM_START": "Stim début", "STIM_END": "Stim fin",
-        "TRIAL_END": "Fin essai", "STIMULUS_SKIP": "Passé",
-        "STIMULUS_EXCLUDE": "Exclu", "STIMULUS_REPLACE": "Remplacé",
-        "SESSION_END": "Fin session", "NOTE": "Note",
-    }
-    for ev in events:
-        stim_label = (
-            _format_stimulus_label(ev.stimulus, task_code)
-            if ev.stimulus else ""
-        )
-        correct_fr = {"Yes": "Oui", "No": "Non"}.get(ev.correct or "", "")
-        row = [
-            round(ev.time_s, 4),
-            ev.time_iso,
-            ev_type_fr.get(ev.event.value, ev.event.value),
-            ev.essai or "",
-            stim_label,
-            ev.response or "",
-            correct_fr,
-            round(ev.tr_s, 3) if ev.tr_s is not None else "",
-            ev.stim_epoch or "",
-            ev.notes or "",
-        ]
-        ws2.append(row)
-        r = ws2.max_row
-        # Color RESPONSE rows by epoch
-        if ev.event == EventType.RESPONSE and ev.stim_epoch:
-            if ev.stim_epoch == "per-stim":
-                row_fill = _fill("FFE8E8")
-            elif ev.stim_epoch == "post-stim":
-                row_fill = _fill("E8F4FF")
-            else:
-                row_fill = None
-            if row_fill:
-                for c in ws2[r]:
-                    c.fill = row_fill
-        for c in ws2[r]:
-            c.border    = _border()
-            c.alignment = _left()
-
-    for i, w in enumerate([10, 22, 16, 7, 28, 12, 8, 8, 10, 40], start=1):
-        ws2.column_dimensions[get_column_letter(i)].width = w
     ws2.freeze_panes = "A2"
 
-    # ── Sheet 3: Métadonnées ─────────────────────────────────────────────────
-    ws3 = wb.create_sheet("Métadonnées")
-    ws3.append(["Clé", "Valeur"])
-    for cell in ws3[1]:
-        cell.font = _font(bold=True, color="e0e0e0")
-        cell.fill = hdr_fill
-        cell.border = _border()
-    for k, v in event_log.metadata.items():
-        ws3.append([k, v])
-        for c in ws3[ws3.max_row]:
-            c.border = _border()
-    ws3.column_dimensions["A"].width = 28
-    ws3.column_dimensions["B"].width = 60
+    # Build lookups keyed by essai number
+    image_on_map: dict[int, Event] = {}
+    response_map: dict[int, Event] = {}
+    skip_set: set[int] = set()
+    excl_set: set[int] = set()
+    for ev in events:
+        if ev.event == EventType.IMAGE_ON and ev.essai is not None:
+            image_on_map[ev.essai] = ev
+        elif ev.event == EventType.RESPONSE and ev.essai is not None:
+            response_map[ev.essai] = ev
+        elif ev.event == EventType.STIMULUS_SKIP and ev.essai is not None:
+            skip_set.add(ev.essai)
+        elif ev.event == EventType.STIMULUS_EXCLUDE and ev.essai is not None:
+            excl_set.add(ev.essai)
 
-    # ── Sheet 4: Analyse par stimulation ─────────────────────────────────────
+    # Ordered trial list from TRIAL_START events
+    trial_numbers: list[int] = []
+    _seen: set[int] = set()
+    for ev in events:
+        if ev.event == EventType.TRIAL_START and ev.essai is not None:
+            if ev.essai not in _seen:
+                trial_numbers.append(ev.essai)
+                _seen.add(ev.essai)
+
+    from openpyxl.styles import Font as _XLFont, Alignment as _XLAlign
+
+    for essai in trial_numbers:
+        img_ev  = image_on_map.get(essai)
+        resp_ev = response_map.get(essai)
+
+        stim_id    = (resp_ev or img_ev).stimulus if (resp_ev or img_ev) else ""
+        stim_label = _format_stimulus_label(stim_id or "", task_code)
+        expected   = _expected_response(stim_id or "", task_code)
+        img_iso    = img_ev.time_iso if img_ev else ""
+        img_ts     = round(img_ev.time_s, 4) if img_ev else ""
+
+        if resp_ev:
+            resp_str   = resp_ev.response or ""
+            correct_fr = {"Yes": "Oui", "No": "Non"}.get(resp_ev.correct or "", "")
+            tr_val     = round(resp_ev.tr_s, 3) if resp_ev.tr_s is not None else ""
+            epoch      = resp_ev.stim_epoch or ""
+            stim_active = "Oui" if epoch == "per-stim" else ("" if not epoch else "Non")
+
+            if epoch == "per-stim":
+                row_hex = "fee2e2"
+            elif epoch == "post-stim":
+                row_hex = "e0f2fe"
+            elif resp_ev.correct == "Yes":
+                row_hex = "e8f5e9"
+            elif resp_ev.correct == "No":
+                row_hex = "ffeaea"
+            else:
+                row_hex = None
+        elif essai in skip_set:
+            resp_str   = "Passé"
+            correct_fr = tr_val = epoch = stim_active = ""
+            row_hex    = "f5f5f5"
+        elif essai in excl_set:
+            resp_str   = "Exclu"
+            correct_fr = tr_val = epoch = stim_active = ""
+            row_hex    = "f5f5f5"
+        else:
+            resp_str   = "Timeout"
+            correct_fr = tr_val = epoch = stim_active = ""
+            row_hex    = "f5f5f5"
+
+        ws2.append([
+            essai, stim_label, img_iso, img_ts,
+            resp_str, expected, correct_fr, tr_val, epoch, stim_active,
+        ])
+        r = ws2.max_row
+        row_fill = _fill(row_hex) if row_hex else None
+
+        for ci, cell in enumerate(ws2[r], start=1):
+            cell.border = _border()
+            if row_fill:
+                cell.fill = row_fill
+            # Correct cell — bold colored text
+            if ci == 7 and correct_fr:
+                cell.font = _font(
+                    bold=True,
+                    color="16a34a" if correct_fr == "Oui" else "dc2626",
+                )
+            # TR and Temps IMAGE — right-aligned, monospace
+            elif ci in (4, 8):
+                cell.font      = _XLFont(name="Courier New", size=10)
+                cell.alignment = _XLAlign(horizontal="right", vertical="center")
+                continue
+            if ci != 7:
+                cell.alignment = _left()
+
+    ws2.auto_filter.ref = ws2.dimensions
+    for i, w in enumerate([7, 30, 20, 14, 18, 14, 10, 10, 12, 12], start=1):
+        ws2.column_dimensions[get_column_letter(i)].width = w
+
+    # ── Sheet 3: Analyse par stimulation ─────────────────────────────────────
     if n_stim > 0:
         ws4 = wb.create_sheet("Analyse par stimulation")
 
@@ -544,6 +595,73 @@ def write_excel_report(
             ws4.column_dimensions[get_column_letter(col_idx)].width = min(max_w + 2, 32)
 
         ws4.freeze_panes = "A2"
+
+    # ── Sheet 4: Métadonnées ─────────────────────────────────────────────────
+    ws_meta = wb.create_sheet("Métadonnées")
+    ws_meta.append(["Clé", "Valeur"])
+    for cell in ws_meta[1]:
+        cell.font   = _font(bold=True, color="e0e0e0")
+        cell.fill   = hdr_fill
+        cell.border = _border()
+    for k, v in event_log.metadata.items():
+        ws_meta.append([k, v])
+        for c in ws_meta[ws_meta.max_row]:
+            c.border = _border()
+    ws_meta.column_dimensions["A"].width = 28
+    ws_meta.column_dimensions["B"].width = 60
+
+    # ── Sheet 5: Événements bruts ────────────────────────────────────────────
+    ws_raw = wb.create_sheet("Événements bruts")
+    raw_cols = ["Time_s", "Time_iso", "Événement", "Essai",
+                "Stimulus", "Réponse", "Correct", "TR (s)", "Époque", "Notes"]
+    ws_raw.append(raw_cols)
+    for cell in ws_raw[1]:
+        cell.font      = _font(bold=True, color="e0e0e0")
+        cell.fill      = hdr_fill
+        cell.alignment = _center()
+        cell.border    = _border()
+
+    ev_type_fr = {
+        "SESSION_START": "Début session", "TRIAL_START": "Début essai",
+        "IMAGE_ON": "Image affichée",     "RESPONSE": "Réponse",
+        "STIM_START": "Stim début",       "STIM_END": "Stim fin",
+        "TRIAL_END": "Fin essai",         "STIMULUS_SKIP": "Passé",
+        "STIMULUS_EXCLUDE": "Exclu",      "STIMULUS_REPLACE": "Remplacé",
+        "SESSION_END": "Fin session",     "NOTE": "Note",
+    }
+    for ev in events:
+        stim_label = (
+            _format_stimulus_label(ev.stimulus, task_code) if ev.stimulus else ""
+        )
+        correct_fr = {"Yes": "Oui", "No": "Non"}.get(ev.correct or "", "")
+        ws_raw.append([
+            round(ev.time_s, 4),
+            ev.time_iso,
+            ev_type_fr.get(ev.event.value, ev.event.value),
+            ev.essai or "",
+            stim_label,
+            ev.response or "",
+            correct_fr,
+            round(ev.tr_s, 3) if ev.tr_s is not None else "",
+            ev.stim_epoch or "",
+            ev.notes or "",
+        ])
+        row_r = ws_raw.max_row
+        if ev.event == EventType.RESPONSE and ev.stim_epoch == "per-stim":
+            rf = _fill("FFE8E8")
+            for c in ws_raw[row_r]:
+                c.fill = rf
+        elif ev.event == EventType.RESPONSE and ev.stim_epoch == "post-stim":
+            rf = _fill("E8F4FF")
+            for c in ws_raw[row_r]:
+                c.fill = rf
+        for c in ws_raw[row_r]:
+            c.border    = _border()
+            c.alignment = _left()
+
+    for i, w in enumerate([10, 22, 16, 7, 28, 12, 8, 8, 10, 40], start=1):
+        ws_raw.column_dimensions[get_column_letter(i)].width = w
+    ws_raw.freeze_panes = "A2"
 
     wb.save(xl_path)
     return xl_path
