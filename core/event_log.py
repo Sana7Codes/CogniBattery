@@ -208,9 +208,17 @@ def compute_stim_epochs(events: list[Event]) -> None:
             if (stim_start <= image_on_ts <= stim_end) or \
                (stim_start <= response_ts <= stim_end):
                 if image_on_ts < stim_start and response_ts >= stim_start:
+                    # IMAGE_ON before window, RESPONSE inside — leading boundary
                     epoch = "limite-stim"
                     delta = stim_start - image_on_ts
                     ev.notes = f"IMAGE_ON avant STIM_START (+{delta:.2f}s)"
+                elif image_on_ts <= stim_end and response_ts > stim_end:
+                    # IMAGE_ON inside window, RESPONSE after — trailing boundary
+                    # Keep as per-stim (patient was processing during stim)
+                    # but annotate so researcher sees it
+                    epoch = "per-stim"
+                    delta = response_ts - stim_end
+                    ev.notes = f"RESPONSE après STIM_END (+{delta:.2f}s)"
                 else:
                     epoch = "per-stim"
                 break
