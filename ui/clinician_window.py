@@ -72,8 +72,16 @@ C_STIM_ON_FG   = "#ffffff"
 C_STIM_OFF_BG  = "#f7f8fa"
 C_STIM_OFF_FG  = "#6b7280"
 C_BG_DARK      = "#0a0a0f"
+C_AMBER        = "#d97706"
 
-# Aliases used by display-update methods
+# Spec-named aliases
+C_BG_2    = C_BG_SECONDARY
+C_TEXT_2  = C_TEXT_MUTED
+C_TEXT_3  = C_TEXT_FAINT
+C_STIM_ON = C_STIM_ON_BG
+C_STIM_OFF = C_STIM_OFF_BG
+
+# Legacy aliases kept for any remaining references
 BG      = C_BG
 BG2     = C_BG_SECONDARY
 BG3     = C_BG_SECONDARY
@@ -82,9 +90,18 @@ FG_DIM  = C_TEXT_MUTED
 FG_LIGHT = C_STIM_ON_FG
 GREEN   = C_GREEN
 RED     = C_RED
-ORANGE  = "#d97706"
+ORANGE  = C_AMBER
 STIM_ON  = C_STIM_ON_BG
 STIM_OFF = C_STIM_OFF_BG
+
+# Font constants
+F_BODY   = ("Helvetica Neue", 12)
+F_SMALL  = ("Helvetica Neue", 10)
+F_LABEL  = ("Helvetica Neue", 9)
+F_MONO   = ("Menlo", 11)
+F_MONO_L = ("Menlo", 15)
+F_BOLD   = ("Helvetica Neue", 12, "bold")
+F_TITLE  = ("Helvetica Neue", 16, "bold")
 
 
 # ─── Clinician application ────────────────────────────────────────────────────
@@ -101,6 +118,7 @@ class ClinicianApp:
         progression_mode: str,
         stim_key: str = "f12",
         mock: bool = False,
+        patient_id: str = "",
     ) -> None:
         self._from_q = from_patient_q
         self._to_q   = to_patient_q
@@ -109,6 +127,7 @@ class ClinicianApp:
         self._prog_mode       = progression_mode
         self._stim_key        = stim_key.lower()
         self._mock            = mock
+        self._patient_id      = patient_id
 
         self._trial_n          = 0
         self._total_trials     = 0
@@ -157,26 +176,55 @@ class ClinicianApp:
 
         # ── Header bar ────────────────────────────────────────────────────────
         header = tk.Frame(
-            root, bg=C_BG,
+            root, bg=C_BG, height=48,
             highlightbackground=C_BORDER, highlightthickness=1,
         )
         header.pack(fill="x")
+        header.pack_propagate(False)
+
+        left_hdr = tk.Frame(header, bg=C_BG)
+        left_hdr.pack(side="left", padx=(12, 0), fill="y")
+
+        dot_cv = tk.Canvas(left_hdr, width=10, height=10, bg=C_BG, highlightthickness=0)
+        dot_cv.pack(side="left", anchor="center", pady=14, padx=(0, 8))
+        dot_cv.create_oval(1, 1, 9, 9, fill="#22c55e", outline="")
+
+        lbl_col = tk.Frame(left_hdr, bg=C_BG)
+        lbl_col.pack(side="left", anchor="center")
 
         self._task_lbl = tk.Label(
-            header, text=self._task_display,
-            font=("Helvetica Neue", 13, "bold"),
-            fg=C_TEXT, bg=C_BG,
-            padx=16, pady=10,
+            lbl_col, text=self._task_display,
+            font=F_BOLD, fg=C_TEXT, bg=C_BG, anchor="w",
         )
-        self._task_lbl.pack(side="left")
+        self._task_lbl.pack(anchor="w")
+
+        self._patient_meta_lbl = tk.Label(
+            lbl_col, text=self._patient_id,
+            font=F_SMALL, fg=C_TEXT_2, bg=C_BG, anchor="w",
+        )
+        self._patient_meta_lbl.pack(anchor="w")
 
         if self._mock:
             tk.Label(
-                header, text="MODE TEST",
+                left_hdr, text="MODE TEST",
                 font=("Helvetica Neue", 9, "bold"),
                 fg="#b45309", bg="#fffbeb",
                 padx=6, pady=2,
-            ).pack(side="right", padx=12, pady=8)
+            ).pack(side="left", padx=(12, 0), anchor="center")
+
+        right_hdr = tk.Frame(header, bg=C_BG)
+        right_hdr.pack(side="right", padx=12, fill="y")
+
+        _pill_kw = dict(
+            font=F_MONO, fg=C_TEXT_2, bg=C_BG_2,
+            highlightbackground=C_BORDER, highlightthickness=1,
+            padx=8, pady=3, relief="flat",
+        )
+        self._timer_pill = tk.Label(right_hdr, text="0.0s", **_pill_kw)
+        self._timer_pill.pack(side="right", anchor="center", pady=13)
+
+        self._trial_pill = tk.Label(right_hdr, text="— / —", **_pill_kw)
+        self._trial_pill.pack(side="right", anchor="center", pady=13, padx=(0, 6))
 
         # ── STIM banner ───────────────────────────────────────────────────────
         self._stim_banner = tk.Label(
@@ -203,78 +251,21 @@ class ClinicianApp:
         self._build_banque_tab(tab_banque)
         self._build_historique_tab(tab_hist)
 
-        # ── Bottom control bar ────────────────────────────────────────────────
-        ctrl = tk.Frame(
-            root, bg=C_BG,
-            highlightbackground=C_BORDER, highlightthickness=1,
-            pady=8,
-        )
-        ctrl.pack(fill="x")
-
-        _btn = dict(
-            bg=C_BG, relief="flat",
-            highlightbackground=C_BORDER, highlightthickness=1,
-            font=("Helvetica Neue", 11), cursor="hand2",
-            padx=10, pady=6,
-        )
-
-        self._skip_btn = tk.Button(
-            ctrl, text="Passer", command=self._cmd_skip, **_btn,
-        )
-        self._skip_btn.grid(row=0, column=0, padx=(12, 4))
-
-        self._excl_btn = tk.Button(
-            ctrl, text="Exclure", command=self._cmd_exclude, **_btn,
-        )
-        self._excl_btn.grid(row=0, column=1, padx=4)
-
-        self._repl_btn = tk.Button(
-            ctrl, text="Remplacer…", command=self._cmd_replace, **_btn,
-        )
-        self._repl_btn.grid(row=0, column=2, padx=4)
-
-        self._abort_btn = tk.Button(
-            ctrl, text="Arrêter la séance", command=self._cmd_abort,
-            bg=C_BG, fg=C_RED,
-            relief="flat", highlightbackground="#fca5a5", highlightthickness=1,
-            font=("Helvetica Neue", 11), cursor="hand2",
-            padx=10, pady=6,
-        )
-        self._abort_btn.grid(row=0, column=3, padx=4)
-
-        self._next_btn = tk.Button(
-            ctrl, text="Essai suivant ▶", command=self._cmd_next_trial,
-            **_btn, state="disabled",
-        )
-        self._next_btn.grid(row=0, column=4, padx=4)
-        if self._prog_mode == "ClinicianAction":
-            self._next_btn.config(state="normal")
-
-        if self._mock:
-            self._mock_stim_btn = tk.Button(
-                ctrl, text="Test STIM (F12)", command=self._cmd_stim_key,
-                fg="#b45309", bg="#fffbeb",
-                relief="flat", highlightbackground="#fbbf24", highlightthickness=1,
-                font=("Helvetica Neue", 11), cursor="hand2",
-                padx=10, pady=6,
-            )
-            self._mock_stim_btn.grid(row=0, column=5, padx=4)
-
     # ── Session tab ───────────────────────────────────────────────────────────
 
     def _build_session_tab(self, parent: ttk.Frame) -> None:
         main = tk.Frame(parent, bg=C_BG)
         main.pack(fill="both", expand=True)
         main.columnconfigure(0, weight=3)
-        main.columnconfigure(1, weight=2, minsize=340)
+        main.columnconfigure(1, weight=0, minsize=340)
 
         # ── Left: dark patient mirror ─────────────────────────────────────────
         img_card = tk.Frame(main, bg=C_BG_DARK)
         img_card.grid(row=0, column=0, sticky="nsew", padx=(8, 4), pady=8)
 
         tk.Label(
-            img_card, text="STIMULUS ACTUEL",
-            font=("Helvetica Neue", 9), fg="#4a6fa5", bg=C_BG_DARK,
+            img_card, text="ÉCRAN PATIENT",
+            font=F_LABEL, fg="#333344", bg=C_BG_DARK,
             anchor="w", padx=12, pady=6,
         ).pack(fill="x")
 
@@ -289,87 +280,189 @@ class ClinicianApp:
         )
         right_panel.grid(row=0, column=1, sticky="nsew", padx=(4, 8), pady=8)
 
-        def _section_lbl(title: str) -> None:
+        inner = tk.Frame(right_panel, bg=C_BG)
+        inner.pack(fill="both", expand=True)
+
+        def _sec_lbl(title: str) -> None:
             tk.Label(
-                right_panel, text=title,
-                font=("Helvetica Neue", 9), fg=C_TEXT_FAINT, bg=C_BG,
-                anchor="w", padx=12, pady=4,
-            ).pack(fill="x", pady=(4, 0))
+                inner, text=title,
+                font=F_LABEL, fg=C_TEXT_FAINT, bg=C_BG,
+                anchor="w", padx=12,
+            ).pack(fill="x", pady=(6, 2))
 
         def _divider() -> None:
-            tk.Frame(right_panel, bg=C_BORDER, height=1).pack(fill="x", padx=8)
+            tk.Frame(inner, bg=C_BORDER, height=1).pack(fill="x", padx=8, pady=2)
 
-        # ── Essai en cours ────────────────────────────────────────────────────
-        _section_lbl("ESSAI EN COURS")
+        def _tile(parent_w, title: str):
+            f = tk.Frame(
+                parent_w, bg=C_BG_2,
+                highlightbackground=C_BORDER, highlightthickness=1,
+            )
+            tk.Label(f, text=title, font=F_LABEL, fg=C_TEXT_3, bg=C_BG_2,
+                     anchor="w", padx=6).pack(fill="x", pady=(4, 0))
+            val = tk.Label(f, text="—", font=F_BOLD, fg=C_TEXT, bg=C_BG_2,
+                           anchor="w", padx=6)
+            val.pack(fill="x", pady=(0, 4))
+            return f, val
 
-        essai_box = tk.Frame(
-            right_panel, bg=C_BG_SECONDARY,
-            highlightbackground=C_BORDER, highlightthickness=1,
+        # ── ESSAI EN COURS ────────────────────────────────────────────────────
+        _sec_lbl("ESSAI EN COURS")
+
+        grid2 = tk.Frame(inner, bg=C_BG)
+        grid2.pack(fill="x", padx=8, pady=(0, 2))
+        grid2.columnconfigure(0, weight=1, uniform="t2")
+        grid2.columnconfigure(1, weight=1, uniform="t2")
+
+        f_ess, self._tile_essai_val    = _tile(grid2, "Essai")
+        f_tmp, self._tile_temps_val    = _tile(grid2, "Temps écoulé")
+        f_att, self._tile_attendue_val = _tile(grid2, "Réponse attendue")
+        f_rsp, self._tile_resp_val     = _tile(grid2, "Réponse patient")
+
+        f_ess.grid(row=0, column=0, sticky="nsew", padx=(0, 2), pady=(0, 2))
+        f_tmp.grid(row=0, column=1, sticky="nsew", padx=(2, 0), pady=(0, 2))
+        f_att.grid(row=1, column=0, sticky="nsew", padx=(0, 2), pady=(2, 0))
+        f_rsp.grid(row=1, column=1, sticky="nsew", padx=(2, 0), pady=(2, 0))
+
+        f_stm, self._tile_stim_val = _tile(inner, "Stimulus")
+        f_stm.pack(fill="x", padx=8, pady=(4, 2))
+
+        self._timer_canvas = tk.Canvas(
+            inner, height=3, bg=C_BORDER, highlightthickness=0,
         )
-        essai_box.pack(fill="x", padx=8, pady=(2, 8))
-
-        self._trial_lbl = tk.Label(
-            essai_box, text="—",
-            font=("Helvetica Neue", 14, "bold"), fg=C_TEXT, bg=C_BG_SECONDARY,
-            anchor="w", padx=10, pady=4,
-        )
-        self._trial_lbl.pack(fill="x")
-
-        self._correct_lbl = tk.Label(
-            essai_box, text="Réponse attendue: —",
-            font=("Helvetica Neue", 10), fg=C_BLUE, bg=C_BG_SECONDARY,
-            anchor="w", padx=10,
-        )
-        self._correct_lbl.pack(fill="x")
-
-        self._resp_lbl = tk.Label(
-            essai_box, text="Réponse patient: —",
-            font=("Helvetica Neue", 12, "bold"), fg=C_TEXT, bg=C_BG_SECONDARY,
-            anchor="w", padx=10,
-        )
-        self._resp_lbl.pack(fill="x")
+        self._timer_canvas.pack(fill="x", padx=8, pady=(2, 1))
 
         self._timer_lbl = tk.Label(
-            essai_box, text="",
-            font=("Helvetica Neue", 10), fg=C_TEXT_MUTED, bg=C_BG_SECONDARY,
-            anchor="w", padx=10, pady=2,
+            inner, text="", font=F_MONO, fg=C_TEXT_MUTED, bg=C_BG,
+            anchor="w", padx=8,
         )
-        self._timer_lbl.pack(fill="x", pady=(0, 4))
+        self._timer_lbl.pack(fill="x", pady=(0, 2))
 
         _divider()
 
-        # ── Statistiques ──────────────────────────────────────────────────────
-        _section_lbl("STATISTIQUES")
+        # ── STATISTIQUES ──────────────────────────────────────────────────────
+        _sec_lbl("STATISTIQUES")
 
-        stats_box = tk.Frame(
-            right_panel, bg=C_BG_SECONDARY,
+        chips_row = tk.Frame(inner, bg=C_BG)
+        chips_row.pack(fill="x", padx=8, pady=(0, 4))
+        for _c in range(4):
+            chips_row.columnconfigure(_c, weight=1, uniform="ch")
+
+        def _chip(parent_w, title: str):
+            f = tk.Frame(
+                parent_w, bg=C_BG_2,
+                highlightbackground=C_BORDER, highlightthickness=1,
+            )
+            tk.Label(f, text=title, font=F_LABEL, fg=C_TEXT_3, bg=C_BG_2,
+                     anchor="center").pack(fill="x", pady=(4, 0))
+            val = tk.Label(f, text="—", font=("Menlo", 18, "bold"), fg=C_TEXT, bg=C_BG_2,
+                           anchor="center")
+            val.pack(fill="x", pady=(0, 4))
+            return f, val
+
+        fc_tot, self._chip_total_val   = _chip(chips_row, "Essais")
+        fc_cor, self._chip_correct_val = _chip(chips_row, "Corrects")
+        fc_skp, self._chip_skipped_val = _chip(chips_row, "Passés")
+        fc_pct, self._chip_pct_val     = _chip(chips_row, "% Correct")
+
+        fc_tot.grid(row=0, column=0, sticky="nsew", padx=(0, 1))
+        fc_cor.grid(row=0, column=1, sticky="nsew", padx=1)
+        fc_skp.grid(row=0, column=2, sticky="nsew", padx=1)
+        fc_pct.grid(row=0, column=3, sticky="nsew", padx=(1, 0))
+
+        _divider()
+
+        # ── CONTRÔLE ─────────────────────────────────────────────────────────
+        _sec_lbl("CONTRÔLE")
+
+        ctrl = tk.Frame(inner, bg=C_BG)
+        ctrl.pack(fill="x", padx=8, pady=(0, 4))
+
+        _btn_kw = dict(
+            bg=C_BG, fg=C_TEXT, relief="flat",
+            font=F_BODY, cursor="hand2", width=30, anchor="w",
+            highlightbackground=C_BORDER, highlightthickness=1,
+            padx=8, pady=4,
+        )
+
+        self._skip_btn = tk.Button(ctrl, text="Passer", command=self._cmd_skip, **_btn_kw)
+        self._skip_btn.pack(fill="x", pady=1)
+
+        self._excl_btn = tk.Button(ctrl, text="Exclure", command=self._cmd_exclude, **_btn_kw)
+        self._excl_btn.pack(fill="x", pady=1)
+
+        self._repl_btn = tk.Button(ctrl, text="Remplacer…", command=self._cmd_replace, **_btn_kw)
+        self._repl_btn.pack(fill="x", pady=1)
+
+        self._next_btn = tk.Button(
+            ctrl, text="Essai suivant ▶", command=self._cmd_next_trial,
+            state="disabled", **_btn_kw,
+        )
+        self._next_btn.pack(fill="x", pady=1)
+        if self._prog_mode == "ClinicianAction":
+            self._next_btn.config(state="normal")
+
+        self._abort_btn = tk.Button(
+            ctrl, text="Arrêter la séance", command=self._cmd_abort,
+            bg=C_BG, fg=C_RED, relief="flat", width=30, anchor="w",
+            font=F_BODY, cursor="hand2",
+            highlightbackground="#fca5a5", highlightthickness=1,
+            padx=8, pady=4,
+        )
+        self._abort_btn.pack(fill="x", pady=1)
+
+        if self._mock:
+            self._mock_stim_btn = tk.Button(
+                ctrl, text="Test STIM (F12)", command=self._cmd_stim_key,
+                fg="#b45309", bg="#fffbeb",
+                relief="flat", width=30, anchor="w",
+                font=F_BODY, cursor="hand2",
+                highlightbackground="#fbbf24", highlightthickness=1,
+                padx=8, pady=4,
+            )
+            self._mock_stim_btn.pack(fill="x", pady=1)
+
+        _divider()
+
+        # ── ANNOTATION ────────────────────────────────────────────────────────
+        _sec_lbl("ANNOTATION")
+
+        annot_row = tk.Frame(inner, bg=C_BG)
+        annot_row.pack(fill="x", padx=8, pady=(2, 8))
+
+        self._annot_entry = tk.Entry(
+            annot_row, width=22,
+            font=F_SMALL,
+            bg=C_BG_SECONDARY, fg=C_TEXT, insertbackground=C_TEXT,
+            relief="flat",
             highlightbackground=C_BORDER, highlightthickness=1,
         )
-        stats_box.pack(fill="x", padx=8, pady=(2, 8))
+        self._annot_entry.pack(side="left", padx=(0, 6))
+        self._annot_entry.bind("<Return>", lambda _: self._cmd_annotate())
 
-        self._stats_lbl = tk.Label(
-            stats_box, text="—",
-            font=("Helvetica Neue", 10), fg=C_TEXT, bg=C_BG_SECONDARY,
-            anchor="w", padx=10, pady=6,
-        )
-        self._stats_lbl.pack(fill="x")
+        tk.Button(
+            annot_row, text="Ajouter",
+            command=self._cmd_annotate,
+            bg=C_BG, fg=C_TEXT, font=F_SMALL,
+            relief="flat", highlightbackground=C_BORDER, highlightthickness=1,
+            padx=10, pady=3, cursor="hand2",
+        ).pack(side="left")
 
         _divider()
 
-        # ── Paramètres de stimulation (collapsible) ───────────────────────────
+        # ── PARAMÈTRES DE STIMULATION (collapsible) ───────────────────────────
         self._params_toggle_btn = tk.Button(
-            right_panel,
-            text="▼  Paramètres de stimulation",
+            inner,
+            text="▼  PARAMÈTRES DE STIMULATION",
             command=self._toggle_params,
             bg=C_BG, fg=C_TEXT_MUTED,
             relief="flat", anchor="w",
-            font=("Helvetica Neue", 9),
+            font=F_LABEL,
             padx=12, pady=6, cursor="hand2",
         )
         self._params_toggle_btn.pack(fill="x")
 
         self._params_frame = tk.Frame(
-            right_panel, bg=C_BG_SECONDARY,
+            inner, bg=C_BG_SECONDARY,
             highlightbackground=C_BORDER, highlightthickness=1,
         )
         self._params_frame.pack(fill="x", padx=8, pady=(0, 8))
@@ -382,48 +475,24 @@ class ClinicianApp:
         ]):
             tk.Label(
                 self._params_frame, text=lbl,
-                font=("Helvetica Neue", 10), fg=C_TEXT, bg=C_BG_SECONDARY,
+                font=F_SMALL, fg=C_TEXT, bg=C_BG_SECONDARY,
                 anchor="w",
             ).grid(row=i, column=0, sticky="w", padx=10, pady=2)
             tk.Entry(
                 self._params_frame, textvariable=var, width=10,
-                font=("Helvetica Neue", 10),
+                font=F_SMALL,
                 bg=C_BG, fg=C_TEXT, insertbackground=C_TEXT,
                 relief="flat",
                 highlightbackground=C_BORDER, highlightthickness=1,
             ).grid(row=i, column=1, sticky="w", padx=(6, 10))
 
-        ttk.Button(
+        tk.Button(
             self._params_frame, text="Mettre à jour",
             command=self._send_update_params,
+            bg=C_BLUE, fg="white",
+            relief="flat", font=F_SMALL,
+            padx=10, pady=5, cursor="hand2",
         ).grid(row=4, column=0, columnspan=2, pady=(6, 8), sticky="w", padx=10)
-
-        _divider()
-
-        # ── Annotation ────────────────────────────────────────────────────────
-        _section_lbl("ANNOTATION")
-
-        annot_row = tk.Frame(right_panel, bg=C_BG)
-        annot_row.pack(fill="x", padx=8, pady=(2, 8))
-
-        self._annot_entry = tk.Entry(
-            annot_row, width=22,
-            font=("Helvetica Neue", 10),
-            bg=C_BG_SECONDARY, fg=C_TEXT, insertbackground=C_TEXT,
-            relief="flat",
-            highlightbackground=C_BORDER, highlightthickness=1,
-        )
-        self._annot_entry.pack(side="left", padx=(0, 6))
-        self._annot_entry.bind("<Return>", lambda _: self._cmd_annotate())
-
-        tk.Button(
-            annot_row, text="Ajouter",
-            command=self._cmd_annotate,
-            bg=C_BG, fg=C_TEXT,
-            font=("Helvetica Neue", 10),
-            relief="flat", highlightbackground=C_BORDER, highlightthickness=1,
-            padx=10, pady=3, cursor="hand2",
-        ).pack(side="left")
 
     # ── Banque de stimuli tab ─────────────────────────────────────────────────
 
@@ -720,53 +789,65 @@ class ClinicianApp:
     # ── Display updates ───────────────────────────────────────────────────────
 
     def _update_trial_display(self) -> None:
-        self._trial_lbl.config(text=f"Essai {self._trial_n} / {self._total_trials}")
-        ans = self._correct_answer or "—"
-        self._correct_lbl.config(text=f"Réponse attendue: {ans}")
-        self._resp_lbl.config(text="Réponse patient: —", fg=C_TEXT)
+        pill_text = f"{self._trial_n} / {self._total_trials}"
+        self._trial_pill.config(text=pill_text)
+        self._tile_essai_val.config(text=pill_text)
+        self._tile_attendue_val.config(text=self._correct_answer or "—")
+        self._tile_resp_val.config(text="—", fg=C_TEXT)
+        self._tile_stim_val.config(text=self._current_pid or "—")
 
     def _update_response_display(self) -> None:
         cr = self._last_correct
         if cr is True:
-            colour  = C_GREEN
-            verdict = "  ✓ Correct"
+            colour = C_GREEN
+            text   = f"{self._last_response}  ✓"
         elif cr is False:
-            colour  = C_RED
-            verdict = "  ✗ Incorrect"
+            colour = C_RED
+            text   = f"{self._last_response}  ✗"
         else:
-            colour  = C_TEXT_MUTED
-            verdict = ""
-        self._resp_lbl.config(
-            text=f"Réponse patient: {self._last_response}{verdict}",
-            fg=colour,
-        )
+            colour = C_TEXT_MUTED
+            text   = self._last_response or "—"
+        self._tile_resp_val.config(text=text, fg=colour)
 
     def _update_stats_display(self) -> None:
         pct = (
             round(self._n_correct / self._n_total * 100, 1)
             if self._n_total > 0 else 0.0
         )
-        mean_tr_str = ""
-        if self._tr_values:
-            mean_tr = sum(self._tr_values) / len(self._tr_values)
-            mean_tr_str = f"\nTR moyen: {mean_tr:.3f}s  (n={len(self._tr_values)})"
-
-        self._stats_lbl.config(
-            text=(
-                f"{self._n_correct}/{self._n_total} corrects  ({pct}%)\n"
-                f"Passés: {self._n_skipped}   Exclus: {self._n_excluded}"
-                f"{mean_tr_str}"
-            )
+        pct_color = C_GREEN if pct >= 70 else (C_AMBER if pct >= 40 else C_RED)
+        self._chip_total_val.config(text=str(self._n_total), fg=C_TEXT)
+        self._chip_correct_val.config(
+            text=str(self._n_correct),
+            fg=C_GREEN if self._n_total else C_TEXT,
         )
+        self._chip_skipped_val.config(text=str(self._n_skipped), fg=C_TEXT)
+        self._chip_pct_val.config(text=f"{pct}%", fg=pct_color)
 
     def _update_timer_display(self) -> None:
         if self._image_on_ts is None:
             self._timer_lbl.config(text="")
+            self._timer_pill.config(text="0.0s")
             return
-        t_str = f"Temps: {self._elapsed_s:.1f}s"
+        t_str = f"{self._elapsed_s:.1f}s"
         if self._remaining_s is not None:
-            t_str += f"   Restant: {self._remaining_s:.1f}s"
-        self._timer_lbl.config(text=t_str)
+            full_str = f"{t_str}  ▸  {self._remaining_s:.1f}s restant"
+        else:
+            full_str = t_str
+        self._timer_lbl.config(text=full_str)
+        self._timer_pill.config(text=t_str)
+        self._tile_temps_val.config(text=t_str)
+        try:
+            w = self._timer_canvas.winfo_width()
+            if w > 1 and self._remaining_s is not None:
+                total = self._elapsed_s + self._remaining_s
+                if total > 0:
+                    frac = min(1.0, self._elapsed_s / total)
+                    self._timer_canvas.delete("all")
+                    self._timer_canvas.create_rectangle(
+                        0, 0, int(w * frac), 3, fill=C_BLUE, outline="",
+                    )
+        except Exception:
+            pass
 
     def _update_image(self) -> None:
         if not self._stim_path:
@@ -807,10 +888,10 @@ class ClinicianApp:
     def _toggle_params(self) -> None:
         if self._params_collapsed:
             self._params_frame.pack(fill="x", padx=8, pady=(0, 8))
-            self._params_toggle_btn.config(text="▼  Paramètres de stimulation")
+            self._params_toggle_btn.config(text="▼  PARAMÈTRES DE STIMULATION")
         else:
             self._params_frame.pack_forget()
-            self._params_toggle_btn.config(text="▶  Paramètres de stimulation")
+            self._params_toggle_btn.config(text="▶  PARAMÈTRES DE STIMULATION")
         self._params_collapsed = not self._params_collapsed
 
     # ── Banque helpers ────────────────────────────────────────────────────────
@@ -952,7 +1033,7 @@ class ClinicianApp:
         PAD = 24
 
         tk.Label(dlg, text="Finaliser la session",
-                 font=("Helvetica Neue", 18, "bold"), fg=C_TEXT, bg=C_BG).pack(pady=(20, 4))
+                 font=F_TITLE, fg=C_TEXT, bg=C_BG).pack(pady=(20, 4))
 
         subtitle = (
             f"Patient : {patient_id}  —  {task_name}  "
@@ -968,8 +1049,8 @@ class ClinicianApp:
                  font=("Helvetica Neue", 11, "bold"), fg=C_TEXT, bg=C_BG,
                  anchor="w").pack(fill="x", padx=PAD)
 
-        notes_box = tk.Text(dlg, width=52, height=4, wrap="word",
-                            font=("Helvetica Neue", 11),
+        notes_box = tk.Text(dlg, width=52, height=3, wrap="word",
+                            font=F_BODY,
                             bg=C_BG_SECONDARY, fg=C_TEXT, relief="flat",
                             highlightbackground=C_BORDER, highlightthickness=1,
                             padx=4, pady=4)
@@ -993,8 +1074,8 @@ class ClinicianApp:
 
         save_btn = tk.Button(
             btn_frame, text="Sauvegarder et fermer",
-            bg=C_NAVY, fg="white", font=("Helvetica Neue", 12, "bold"),
-            relief="flat", padx=16, pady=9, cursor="hand2",
+            bg=C_NAVY, fg="white", font=F_BOLD,
+            relief="flat", padx=20, pady=10, cursor="hand2",
         )
         abandon_btn = tk.Button(
             btn_frame, text="Abandonner la session",
@@ -1101,13 +1182,13 @@ class ClinicianApp:
 
         tk.Label(
             dlg, text="Session terminée",
-            font=("Helvetica Neue", 18, "bold"), fg=C_TEXT, bg=C_BG,
+            font=F_TITLE, fg=C_TEXT, bg=C_BG,
         ).pack(fill="x", pady=(20, 4))
 
         subtitle = f"Patient : {patient_id}  |  Tâche : {task_name}  |  {date_str}  {time_str}"
         tk.Label(
             dlg, text=subtitle,
-            font=("Helvetica Neue", 11), fg=C_TEXT_MUTED, bg=C_BG,
+            font=F_SMALL, fg=C_TEXT_2, bg=C_BG,
             wraplength=460,
         ).pack(fill="x", padx=PAD)
 
@@ -1199,7 +1280,7 @@ class ClinicianApp:
             file_row.pack(fill="x", padx=PAD, pady=(0, 8))
 
             tk.Label(file_row, text=f"Fichier sauvegardé : {stem}",
-                     font=("Helvetica Neue", 9), fg=C_TEXT_FAINT, bg=C_BG,
+                     font=("Menlo", 9), fg=C_TEXT_FAINT, bg=C_BG,
                      wraplength=340, justify="left").pack(side="left")
 
             def _open_folder(p=csv_path):
@@ -1215,7 +1296,7 @@ class ClinicianApp:
                     pass
 
             tk.Button(file_row, text="Ouvrir le dossier", command=_open_folder,
-                      bg=C_BG_SECONDARY, fg=C_TEXT, font=("Helvetica Neue", 9),
+                      bg=C_BG_SECONDARY, fg=C_BLUE, font=("Helvetica Neue", 9),
                       relief="flat", highlightbackground=C_BORDER, highlightthickness=1,
                       padx=6, pady=2, cursor="hand2").pack(side="right")
 
@@ -1466,6 +1547,7 @@ def run_clinician_process(
     intensity_ma: float,
     duration_s: float,
     mock: bool = False,
+    patient_id: str = "",
 ) -> None:
     """
     Entry point for the clinician window subprocess.
@@ -1479,6 +1561,7 @@ def run_clinician_process(
         progression_mode=progression_mode,
         stim_key=stim_key,
         mock=mock,
+        patient_id=patient_id,
     )
     app._electrode.set(electrode)
     app._contact.set(contact)

@@ -33,10 +33,11 @@ C_NAVY         = "#1a2744"
 C_GREEN        = "#16a34a"
 C_RED          = "#dc2626"
 
-F_BODY  = ("Helvetica Neue", 12)
-F_SMALL = ("Helvetica Neue", 9)
-F_BOLD  = ("Helvetica Neue", 12, "bold")
-F_MONO  = ("Menlo", 13, "bold")
+F_BODY   = ("Helvetica Neue", 12)
+F_SMALL  = ("Helvetica Neue", 9)
+F_BOLD   = ("Helvetica Neue", 12, "bold")
+F_MONO   = ("Menlo", 13, "bold")
+F_MONO_L = ("Menlo", 15)
 
 # ── Task display names ────────────────────────────────────────────────────────
 
@@ -87,7 +88,7 @@ class SetupForm:
         self._root.title("Battery — Configuration de session")
         self._root.resizable(False, False)
         self._root.configure(bg=C_BG)
-        self._root.minsize(920, 640)
+        self._root.minsize(960, 680)
         self._build_ui()
         self._root.mainloop()
         return self.result
@@ -111,7 +112,7 @@ class SetupForm:
             self._banner_frame = tk.Frame(root, bg="#c5d7f7", padx=1, pady=1)
             self._banner_frame.grid(row=0, column=0, columnspan=2,
                                     sticky="ew", padx=12, pady=(10, 0))
-            _inner = tk.Frame(self._banner_frame, bg=_BG_BAN, pady=8, padx=14)
+            _inner = tk.Frame(self._banner_frame, bg=_BG_BAN, pady=10, padx=16)
             _inner.pack(fill="x")
             tk.Label(
                 _inner,
@@ -129,7 +130,7 @@ class SetupForm:
         def _lbl(parent, text, row):
             tk.Label(
                 parent, text=text,
-                bg=C_BG, fg=C_TEXT, font=F_BODY, anchor="w",
+                bg=C_BG, fg=C_TEXT_MUTED, font=F_SMALL, anchor="w",
             ).grid(row=row, column=0, sticky="w", pady=(8, 0), padx=(0, 8))
 
         def _entry(parent, var, row, width=18):
@@ -157,7 +158,7 @@ class SetupForm:
         now = datetime.datetime.now().strftime("%Y-%m-%d  %H:%M:%S")
         self._time_label = tk.Label(
             left, text=now,
-            bg=C_BG, fg=C_RED, font=F_MONO, anchor="w",
+            bg=C_BG, fg=C_BLUE, font=F_MONO_L, anchor="w",
         )
         self._time_label.grid(row=1, column=1, sticky="w", pady=(8, 0), padx=(8, 0))
         self._update_clock()
@@ -274,8 +275,8 @@ class SetupForm:
             btn_bar, text="Démarrer la session ▶",
             command=self._on_start,
             bg=C_NAVY, fg="white", font=F_BOLD,
-            relief="flat", activebackground="#2a3d6e",
-            padx=20, pady=8, cursor="hand2",
+            relief="flat", activebackground="#2a3d6e", activeforeground="white",
+            padx=24, pady=10, cursor="hand2",
             state="disabled",
         )
         self._start_btn.pack(side="left")
@@ -292,7 +293,7 @@ class SetupForm:
             bg=C_BG, fg=C_TEXT_MUTED, font=F_BODY,
             relief="flat",
             highlightbackground=C_BORDER, highlightthickness=1,
-            padx=16, pady=6, cursor="hand2",
+            padx=16, pady=8, cursor="hand2",
         ).grid(row=17, column=0, columnspan=2, pady=(10, 4), sticky="w")
 
         # ── Right column: stimulus list ───────────────────────────────────────
@@ -304,7 +305,7 @@ class SetupForm:
 
         self._cb_label = tk.Label(
             right, text="",
-            bg=C_BG, fg=C_TEXT_MUTED, font=F_SMALL, anchor="w",
+            bg=C_BG, fg=C_TEXT_MUTED, font=F_MONO, anchor="w",
         )
         self._cb_label.pack(anchor="w", pady=(0, 6))
 
@@ -348,8 +349,12 @@ class SetupForm:
 
     def _confirm_time(self) -> None:
         self._time_confirmed = True
-        self._time_label.config(fg=C_GREEN)
-        self._confirm_time_btn.config(state="disabled", text="✓ Heure confirmée")
+        self._confirm_time_btn.config(
+            state="disabled", text="✓ Heure confirmée",
+            bg="#e0f4e8", fg="#1a6b3a",
+            relief="flat", padx=8, pady=3,
+            highlightthickness=0,
+        )
         self._update_start_state()
 
     # ── Stimulus list ─────────────────────────────────────────────────────────
@@ -534,7 +539,7 @@ class SetupForm:
         if ready:
             self._start_btn.config(state="normal", bg=C_NAVY, fg="white")
         else:
-            self._start_btn.config(state="disabled", bg=C_BG_SECONDARY, fg=C_TEXT_MUTED)
+            self._start_btn.config(state="disabled", bg=C_BORDER, fg=C_TEXT_FAINT)
         if ready:
             self._status_label.config(text="Prêt à démarrer.", fg=C_GREEN)
         elif not self._time_confirmed:
