@@ -731,6 +731,7 @@ def run_session(
             log_error(f"write_excel_report failed ({_end_label})", _exc)
 
     print("[END] step 6 — closing PsychoPy window")
+    psy_core.wait(0.5)
     win.close()
     print("[END] step 6b — PsychoPy window closed")
 
