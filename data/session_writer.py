@@ -106,11 +106,13 @@ def write_summary(
 
     n_pre,  ok_pre,  mtr_pre  = _epoch_stats("pré-stim")
     n_per,  ok_per,  mtr_per  = _epoch_stats("per-stim")
+    n_lim,  ok_lim,  mtr_lim  = _epoch_stats("limite-stim")
     n_post, ok_post, mtr_post = _epoch_stats("post-stim")
 
-    # When no stimulation occurred, per/post stats are meaningless — write None
+    # When no stimulation occurred, per/limite/post stats are meaningless — write None
     if n_stim_events == 0:
         n_per = ok_per = mtr_per = None
+        n_lim = ok_lim = mtr_lim = None
         n_post = ok_post = mtr_post = None
 
     def _fmt(v):
@@ -122,9 +124,10 @@ def write_summary(
             "task", "n_trials", "n_correct",
             "mean_TR_s", "sd_TR_s", "n_timeout", "n_skipped",
             "n_stim_events",
-            "n_trials_pre", "n_correct_pre", "mean_TR_pre",
-            "n_trials_per", "n_correct_per", "mean_TR_per",
-            "n_trials_post", "n_correct_post", "mean_TR_post",
+            "n_trials_pre",    "n_correct_pre",    "mean_TR_pre",
+            "n_trials_per",    "n_correct_per",    "mean_TR_per",
+            "n_trials_limite", "n_correct_limite", "mean_TR_limite",
+            "n_trials_post",   "n_correct_post",   "mean_TR_post",
         ])
         writer.writerow([
             session.task_code,
@@ -137,6 +140,7 @@ def write_summary(
             n_stim_events,
             _fmt(n_pre),  _fmt(ok_pre),  _fmt(mtr_pre),
             _fmt(n_per),  _fmt(ok_per),  _fmt(mtr_per),
+            _fmt(n_lim),  _fmt(ok_lim),  _fmt(mtr_lim),
             _fmt(n_post), _fmt(ok_post), _fmt(mtr_post),
         ])
 
@@ -278,6 +282,7 @@ def write_excel_report(
 
     n_pre, ok_pre, mtr_pre = _ep("pré-stim")
     n_per, ok_per, mtr_per = _ep("per-stim")
+    n_lim, ok_lim, mtr_lim = _ep("limite-stim")
     n_post,ok_post,mtr_post= _ep("post-stim")
 
     # ── Sheet 1: Résumé (full clinical summary) ──────────────────────────────
@@ -426,9 +431,10 @@ def write_excel_report(
 
         # Epoch data rows
         epoch_rows = [
-            ("Pré-stim",  n_pre,  ok_pre,  mtr_pre,  "FFFFFF", False),
-            ("Per-stim",  n_per,  ok_per,  mtr_per,  "fee2e2", True),
-            ("Post-stim", n_post, ok_post, mtr_post, "e0f2fe", False),
+            ("Pré-stim",    n_pre,  ok_pre,  mtr_pre,  "FFFFFF", False),
+            ("Per-stim",    n_per,  ok_per,  mtr_per,  "fee2e2", True),
+            ("Limite stim", n_lim,  ok_lim,  mtr_lim,  "fff3e0", True),
+            ("Post-stim",   n_post, ok_post, mtr_post, "e0f2fe", False),
         ]
         for ep_name, ep_n, ep_ok, ep_mtr, ep_hex, ep_bold in epoch_rows:
             r_ep = _nr()
@@ -530,7 +536,7 @@ def write_excel_report(
     ws2 = wb.create_sheet("Journal des essais")
     trial_cols = [
         "Essai", "Stimulus", "Heure IMAGE", "Temps IMAGE (s)",
-        "Réponse", "Attendue", "Correct", "TR (s)", "Époque", "STIM active",
+        "Réponse", "Attendue", "Correct", "TR (s)", "Époque", "STIM active", "Notes",
     ]
     ws2.append(trial_cols)
     for cell in ws2[1]:
@@ -581,10 +587,20 @@ def write_excel_report(
             correct_fr = {"Yes": "Oui", "No": "Non"}.get(resp_ev.correct or "", "")
             tr_val     = round(resp_ev.tr_s, 3) if resp_ev.tr_s is not None else ""
             epoch      = resp_ev.stim_epoch or ""
-            stim_active = "Oui" if epoch == "per-stim" else ("" if not epoch else "Non")
+            notes_val  = resp_ev.notes or ""
+            if epoch == "per-stim":
+                stim_active = "Oui"
+            elif epoch == "limite-stim":
+                stim_active = "Limite"
+            elif epoch:
+                stim_active = "Non"
+            else:
+                stim_active = ""
 
             if epoch == "per-stim":
                 row_hex = "fee2e2"
+            elif epoch == "limite-stim":
+                row_hex = "fff3e0"
             elif epoch == "post-stim":
                 row_hex = "e0f2fe"
             elif resp_ev.correct == "Yes":
@@ -595,20 +611,20 @@ def write_excel_report(
                 row_hex = None
         elif essai in skip_set:
             resp_str   = "Passé"
-            correct_fr = tr_val = epoch = stim_active = ""
+            correct_fr = tr_val = epoch = stim_active = notes_val = ""
             row_hex    = "f5f5f5"
         elif essai in excl_set:
             resp_str   = "Exclu"
-            correct_fr = tr_val = epoch = stim_active = ""
+            correct_fr = tr_val = epoch = stim_active = notes_val = ""
             row_hex    = "f5f5f5"
         else:
             resp_str   = "Timeout"
-            correct_fr = tr_val = epoch = stim_active = ""
+            correct_fr = tr_val = epoch = stim_active = notes_val = ""
             row_hex    = "f5f5f5"
 
         ws2.append([
             essai, stim_label, img_iso, img_ts,
-            resp_str, expected, correct_fr, tr_val, epoch, stim_active,
+            resp_str, expected, correct_fr, tr_val, epoch, stim_active, notes_val,
         ])
         r = ws2.max_row
         row_fill = _fill(row_hex) if row_hex else None
@@ -632,7 +648,7 @@ def write_excel_report(
                 cell.alignment = _left()
 
     ws2.auto_filter.ref = ws2.dimensions
-    for i, w in enumerate([7, 30, 20, 14, 18, 14, 10, 10, 12, 12], start=1):
+    for i, w in enumerate([7, 30, 20, 14, 18, 14, 10, 10, 12, 12, 40], start=1):
         ws2.column_dimensions[get_column_letter(i)].width = w
 
     # ── Sheet 3: Analyse par stimulation ─────────────────────────────────────
@@ -658,12 +674,12 @@ def write_excel_report(
             if ev.event == EventType.IMAGE_ON and ev.essai is not None
         }
 
-        grp_fills  = [_fill("FFFFFF"), _fill("FFE8E8"), _fill("CCEEFF")]
-        grp_hdrs   = ["PRÉ-STIM", "PER-STIM", "POST-STIM"]
-        grp_colors = ["000000", "CC0000", "0044AA"]
+        grp_fills  = [_fill("FFFFFF"), _fill("FFE8E8"), _fill("FFF3E0"), _fill("CCEEFF")]
+        grp_hdrs   = ["PRÉ-STIM", "PER-STIM", "LIMITE", "POST-STIM"]
+        grp_colors = ["000000", "CC0000", "E65100", "0044AA"]
         sub_cols   = ["Essai", "Stimulus", "Réponse", "Correct", "TR (s)"]
         n_cols_per = len(sub_cols)
-        total_cols = n_cols_per * 3  # 15
+        total_cols = n_cols_per * 4  # 20
 
         for wi, (w_start, w_notes, w_end) in enumerate(stim_windows):
             # ── Section header ────────────────────────────────────────────────
@@ -726,6 +742,7 @@ def write_excel_report(
 
             pre_rows: list[Event] = []
             per_rows: list[Event] = []
+            lim_rows: list[Event] = []
             post_rows:list[Event] = []
 
             for resp in resp_evs:
@@ -734,19 +751,22 @@ def write_excel_report(
                     continue
                 if img_ts < prev_end or img_ts >= next_start:
                     continue
-                if (w_start <= img_ts <= w_end) or (w_start <= resp.time_s <= w_end):
+                epoch = resp.stim_epoch or ""
+                if epoch == "per-stim":
                     per_rows.append(resp)
-                elif img_ts > w_end:
+                elif epoch == "limite-stim":
+                    lim_rows.append(resp)
+                elif epoch == "post-stim":
                     post_rows.append(resp)
                 else:
                     pre_rows.append(resp)
 
             # ── Data rows ─────────────────────────────────────────────────────
-            n_data = max(len(pre_rows), len(per_rows), len(post_rows))
+            n_data = max(len(pre_rows), len(per_rows), len(lim_rows), len(post_rows))
             for di in range(n_data):
                 r += 1
                 for gi, (grp_evs, fill, text_color) in enumerate(
-                    zip([pre_rows, per_rows, post_rows], grp_fills, grp_colors)
+                    zip([pre_rows, per_rows, lim_rows, post_rows], grp_fills, grp_colors)
                 ):
                     ev = grp_evs[di] if di < len(grp_evs) else None
                     base_col = gi * n_cols_per + 1
@@ -839,6 +859,10 @@ def write_excel_report(
         row_r = ws_raw.max_row
         if ev.event == EventType.RESPONSE and ev.stim_epoch == "per-stim":
             rf = _fill("FFE8E8")
+            for c in ws_raw[row_r]:
+                c.fill = rf
+        elif ev.event == EventType.RESPONSE and ev.stim_epoch == "limite-stim":
+            rf = _fill("FFF3E0")
             for c in ws_raw[row_r]:
                 c.fill = rf
         elif ev.event == EventType.RESPONSE and ev.stim_epoch == "post-stim":

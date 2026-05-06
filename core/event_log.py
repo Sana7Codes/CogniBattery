@@ -67,7 +67,7 @@ class Event:
     response:    Optional[str]   = None
     correct:     Optional[str]   = None   # "Yes" | "No" | None
     tr_s:        Optional[float] = None
-    stim_epoch:  Optional[str]   = None   # "pré-stim" | "per-stim" | "post-stim"
+    stim_epoch:  Optional[str]   = None   # "pré-stim" | "per-stim" | "limite-stim" | "post-stim"
     touch_x:     Optional[float] = None
     touch_y:     Optional[float] = None
     notes:       Optional[str]   = None
@@ -166,12 +166,14 @@ class EventLog:
 
 def compute_stim_epochs(events: list[Event]) -> None:
     """
-    Classify each RESPONSE event in-place as 'pré-stim', 'per-stim', or 'post-stim'.
+    Classify each RESPONSE event in-place as one of:
+      'pré-stim'    — no stim window overlaps IMAGE_ON or RESPONSE
+      'per-stim'    — IMAGE_ON AND RESPONSE both fall inside a stim window
+      'limite-stim' — IMAGE_ON is before stim window start but RESPONSE falls inside;
+                      ev.notes is set to "IMAGE_ON avant STIM_START (+Xs)"
+      'post-stim'   — IMAGE_ON occurred after the most-recent window that ended before it
 
-    Algorithm (most-recent window first):
-      per-stim  — IMAGE_ON or RESPONSE falls inside a STIM_START→STIM_END window
-      post-stim — IMAGE_ON occurred after the most-recent window that ended before it
-      pré-stim  — default (no stim window precedes IMAGE_ON)
+    Algorithm: iterate stim windows most-recent first to find the most relevant window.
     """
     # Build (start_ts, end_ts) windows from STIM_START/STIM_END pairs
     stim_windows: list[tuple[float, float]] = []
@@ -205,7 +207,12 @@ def compute_stim_epochs(events: list[Event]) -> None:
         for stim_start, stim_end in reversed(stim_windows):
             if (stim_start <= image_on_ts <= stim_end) or \
                (stim_start <= response_ts <= stim_end):
-                epoch = "per-stim"
+                if image_on_ts < stim_start and response_ts >= stim_start:
+                    epoch = "limite-stim"
+                    delta = stim_start - image_on_ts
+                    ev.notes = f"IMAGE_ON avant STIM_START (+{delta:.2f}s)"
+                else:
+                    epoch = "per-stim"
                 break
             if image_on_ts > stim_end:
                 epoch = "post-stim"

@@ -150,6 +150,7 @@ def _emergency_save(session, event_log, csv_path, stimulus_set,
 
     _n_pre,  _ok_pre,  _mtr_pre  = _ep("pré-stim")
     _n_per,  _ok_per,  _mtr_per  = _ep("per-stim")
+    _n_lim,  _ok_lim,  _mtr_lim  = _ep("limite-stim")
     _n_post, _ok_post, _mtr_post = _ep("post-stim")
 
     try:
@@ -164,9 +165,10 @@ def _emergency_save(session, event_log, csv_path, stimulus_set,
             "patient_id":       session.patient_id,
             "task_display_name": session.task_display_name,
             "n_stim_events":    _n_stim,
-            "n_trials_pre":     _n_pre,  "n_correct_pre":  _ok_pre,  "mean_TR_pre":  _mtr_pre,
-            "n_trials_per":     _n_per,  "n_correct_per":  _ok_per,  "mean_TR_per":  _mtr_per,
-            "n_trials_post":    _n_post, "n_correct_post": _ok_post, "mean_TR_post": _mtr_post,
+            "n_trials_pre":     _n_pre,  "n_correct_pre":    _ok_pre,  "mean_TR_pre":    _mtr_pre,
+            "n_trials_per":     _n_per,  "n_correct_per":    _ok_per,  "mean_TR_per":    _mtr_per,
+            "n_trials_limite":  _n_lim,  "n_correct_limite": _ok_lim,  "mean_TR_limite": _mtr_lim,
+            "n_trials_post":    _n_post, "n_correct_post":   _ok_post, "mean_TR_post":   _mtr_post,
         })
     except Exception as exc:
         log_error("emergency_save: notify clinician failed", exc)
@@ -276,9 +278,9 @@ def _run_one_session(cfg: dict, args, trigger, eyelink) -> dict:
             print("[END] session was aborted — finalization done in patient_window")
 
         else:
-            print("[END] natural end — waiting for clinician finalize decision (up to 10 min)")
+            print("[END] natural end — waiting for clinician finalize decision (up to 2 min)")
             _msg = None
-            _deadline = _time_mod.monotonic() + 600
+            _deadline = _time_mod.monotonic() + 120
             while _time_mod.monotonic() < _deadline:
                 try:
                     _msg = from_clin_q.get(timeout=2.0)
@@ -319,11 +321,14 @@ def _run_one_session(cfg: dict, args, trigger, eyelink) -> dict:
                 to_clin_q.put_nowait({"type": "session_abandoned"})
 
             else:
-                log_error("Finalize decision timeout — auto-saving", None)
-                _emergency_save(
-                    session, event_log, csv_path, stimulus_set,
-                    n_total, n_correct, to_clin_q,
+                log_warning(
+                    "Clinician finalize dialog timed out after 120s — "
+                    "session data already saved, exiting cleanly"
                 )
+                try:
+                    to_clin_q.put_nowait({"type": "session_abandoned"})
+                except Exception as _exc:
+                    log_error("timeout: session_abandoned notify failed", _exc)
 
         clin_proc.join(timeout=10)
         if clin_proc.is_alive():

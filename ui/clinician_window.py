@@ -1161,14 +1161,17 @@ class ClinicianApp:
         task_name     = msg.get("task_display_name", self._task_display)
         n_stim_events = msg.get("n_stim_events", 0)
 
-        n_pre  = msg.get("n_trials_pre",  0)
-        ok_pre = msg.get("n_correct_pre", 0)
+        n_pre  = msg.get("n_trials_pre",    0)
+        ok_pre = msg.get("n_correct_pre",   0)
         tr_pre = msg.get("mean_TR_pre")
-        n_per  = msg.get("n_trials_per",  0)
-        ok_per = msg.get("n_correct_per", 0)
+        n_per  = msg.get("n_trials_per",    0)
+        ok_per = msg.get("n_correct_per",   0)
         tr_per = msg.get("mean_TR_per")
-        n_post = msg.get("n_trials_post", 0)
-        ok_post= msg.get("n_correct_post",0)
+        n_lim  = msg.get("n_trials_limite", 0)
+        ok_lim = msg.get("n_correct_limite",0)
+        tr_lim = msg.get("mean_TR_limite")
+        n_post = msg.get("n_trials_post",   0)
+        ok_post= msg.get("n_correct_post",  0)
         tr_post= msg.get("mean_TR_post")
 
         now      = datetime.datetime.now()
@@ -1268,9 +1271,10 @@ class ClinicianApp:
                 return f"{tr:.2f} s" if tr is not None else "—"
 
             for ri, (label, n, ok, tr, color, row_bg) in enumerate([
-                ("Pré-stim",  n_pre,  ok_pre,  tr_pre,  C_TEXT,  C_BG),
-                ("Per-stim",  n_per,  ok_per,  tr_per,  C_RED,   "#fff5f5"),
-                ("Post-stim", n_post, ok_post, tr_post, C_BLUE,  "#f0f7ff"),
+                ("Pré-stim",    n_pre,  ok_pre,  tr_pre,  C_TEXT,   C_BG),
+                ("Per-stim",    n_per,  ok_per,  tr_per,  C_RED,    "#fff5f5"),
+                ("Limite stim", n_lim,  ok_lim,  tr_lim,  C_AMBER,  "#fffbf0"),
+                ("Post-stim",   n_post, ok_post, tr_post, C_BLUE,   "#f0f7ff"),
             ], start=1):
                 for col, (txt, anc) in enumerate([
                     (label,              "w"),

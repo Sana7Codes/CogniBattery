@@ -689,6 +689,7 @@ def run_session(
 
     _n_pre,  _ok_pre,  _mtr_pre  = _ep("pré-stim")
     _n_per,  _ok_per,  _mtr_per  = _ep("per-stim")
+    _n_lim,  _ok_lim,  _mtr_lim  = _ep("limite-stim")
     _n_post, _ok_post, _mtr_post = _ep("post-stim")
 
     _stats_payload = dict(
@@ -701,63 +702,46 @@ def run_session(
         patient_id        = session.patient_id,
         task_display_name = session.task_display_name,
         n_stim_events     = _n_stim,
-        n_trials_pre      = _n_pre,  n_correct_pre  = _ok_pre,  mean_TR_pre  = _mtr_pre,
-        n_trials_per      = _n_per,  n_correct_per  = _ok_per,  mean_TR_per  = _mtr_per,
-        n_trials_post     = _n_post, n_correct_post = _ok_post, mean_TR_post = _mtr_post,
+        n_trials_pre      = _n_pre,  n_correct_pre    = _ok_pre,  mean_TR_pre    = _mtr_pre,
+        n_trials_per      = _n_per,  n_correct_per    = _ok_per,  mean_TR_per    = _mtr_per,
+        n_trials_limite   = _n_lim,  n_correct_limite = _ok_lim,  mean_TR_limite = _mtr_lim,
+        n_trials_post     = _n_post, n_correct_post   = _ok_post, mean_TR_post   = _mtr_post,
     )
 
+    # Write output files before closing the window so data is on disk regardless.
+    _end_label = "abort" if abort_session else "natural end"
+    print(f"[END] step 5 — {_end_label}: writing summary + Excel")
+    if csv_path:
+        try:
+            write_summary(
+                session=session, event_log=event_log,
+                n_trials=n_total, n_correct=n_correct,
+                n_skipped=stimulus_set.n_skipped,
+            )
+        except Exception as _exc:
+            log_error(f"write_summary failed ({_end_label})", _exc)
+        try:
+            from data.session_writer import write_excel_report as _write_xl
+            _write_xl(
+                session=session, event_log=event_log,
+                n_trials=n_total, n_correct=n_correct,
+                n_skipped=stimulus_set.n_skipped,
+            )
+        except Exception as _exc:
+            log_error(f"write_excel_report failed ({_end_label})", _exc)
+
+    print("[END] step 6 — closing PsychoPy window")
+    win.close()
+    print("[END] step 6b — PsychoPy window closed")
+
     if abort_session:
-        # Abort: save files immediately, show end dialog
-        print("[END] step 5 — abort: writing summary + Excel before signalling clinician")
-        if csv_path:
-            try:
-                write_summary(
-                    session=session, event_log=event_log,
-                    n_trials=n_total, n_correct=n_correct,
-                    n_skipped=stimulus_set.n_skipped,
-                )
-            except Exception as _exc:
-                log_error("write_summary failed (abort)", _exc)
-            try:
-                from data.session_writer import write_excel_report as _write_xl
-                _write_xl(
-                    session=session, event_log=event_log,
-                    n_trials=n_total, n_correct=n_correct,
-                    n_skipped=stimulus_set.n_skipped,
-                )
-            except Exception as _exc:
-                log_error("write_excel_report failed (abort)", _exc)
-        print("[END] step 6 — sending session_end (abort)")
+        print("[END] step 7 — sending session_end (abort)")
         _send(to_clin_q, {"type": "session_end", **_stats_payload})
     else:
-        # Natural end: save files immediately so data is on disk before dialog shows.
-        # Notes are appended afterward by run.py; no re-write needed.
-        print("[END] step 5 — natural end: writing summary + Excel immediately")
-        if csv_path:
-            try:
-                write_summary(
-                    session=session, event_log=event_log,
-                    n_trials=n_total, n_correct=n_correct,
-                    n_skipped=stimulus_set.n_skipped,
-                )
-            except Exception as _exc:
-                log_error("write_summary failed (natural end)", _exc)
-            try:
-                from data.session_writer import write_excel_report as _write_xl
-                _write_xl(
-                    session=session, event_log=event_log,
-                    n_trials=n_total, n_correct=n_correct,
-                    n_skipped=stimulus_set.n_skipped,
-                )
-            except Exception as _exc:
-                log_error("write_excel_report failed (natural end)", _exc)
-        print("[END] step 6 — sending session_end_pending (natural end)")
+        print("[END] step 7 — sending session_end_pending (natural end)")
         _send(to_clin_q, {"type": "session_end_pending", **_stats_payload})
 
-    print("[END] step 7 — waiting 1.5s then closing PsychoPy window")
-    psy_core.wait(1.5)
-    win.close()
-    print("[END] step 8 — PsychoPy window closed, returning to run.py")
+    print("[END] step 8 — returning to run.py")
 
     log_info(f"Session ended. Trials: {n_total}, Correct: {n_correct}")
     return n_total, n_correct
