@@ -564,15 +564,19 @@ class ClinicianApp:
                 self._handle_message(msg)
         except Empty:
             pass
+        except Exception as exc:
+            print(f"[WARN] _poll handle error: {exc}", flush=True)
         finally:
             if not self._session_ended:
                 self._root.after(self.POLL_MS, self._poll)
 
-        if self._image_on_ts is not None and not self._session_ended:
-            self._elapsed_s = time.monotonic() - self._image_on_ts
-            self._update_timer_display()
-
-        self._update_stim_banner()
+        try:
+            if self._image_on_ts is not None and not self._session_ended:
+                self._elapsed_s = time.monotonic() - self._image_on_ts
+                self._update_timer_display()
+            self._update_stim_banner()
+        except Exception:
+            pass
 
     def _handle_message(self, msg: dict) -> None:
         t = msg.get("type", "")
@@ -780,22 +784,25 @@ class ClinicianApp:
             self._img_label.config(image="", text=f"[{name}]", fg=FG_LIGHT, bg=C_BG_DARK)
 
     def _update_stim_banner(self) -> None:
-        if self._stim_on:
-            elapsed   = time.monotonic() - self._stim_start_ts if self._stim_start_ts else 0
-            remaining = max(0.0, self._stim_duration - elapsed)
-            elec = self._electrode.get() or "?"
-            cont = self._contact.get()   or "?"
-            mA   = self._intensity.get() or "?"
-            dur  = self._duration.get()  or "?"
-            text = (
-                f"■  STIMULATION EN COURS  —  {elec}-{cont} | {mA}mA | {dur}s"
-                f"  |  ▼ {remaining:.1f}s"
-            )
-            self._stim_banner.config(text=text, bg=C_STIM_ON_BG, fg=C_STIM_ON_FG)
-        else:
-            self._stim_banner.config(
-                text="  STIMULATION OFF  ", bg=C_STIM_OFF_BG, fg=C_STIM_OFF_FG,
-            )
+        try:
+            if self._stim_on:
+                elapsed   = time.monotonic() - self._stim_start_ts if self._stim_start_ts else 0
+                remaining = max(0.0, self._stim_duration - elapsed)
+                elec = self._electrode.get() or "?"
+                cont = self._contact.get()   or "?"
+                mA   = self._intensity.get() or "?"
+                dur  = self._duration.get()  or "?"
+                text = (
+                    f"  ■  STIMULATION EN COURS  —  {elec}-{cont} | {mA}mA | {dur}s"
+                    f"  |  ▼ {remaining:.1f}s"
+                )
+                self._stim_banner.config(text=text, bg=C_STIM_ON_BG, fg=C_STIM_ON_FG)
+            else:
+                self._stim_banner.config(
+                    text="  STIMULATION OFF", bg=C_STIM_OFF_BG, fg=C_STIM_OFF_FG,
+                )
+        except Exception as exc:
+            print(f"[WARN] _update_stim_banner: {exc}", flush=True)
 
     def _toggle_params(self) -> None:
         if self._params_collapsed:
@@ -1247,7 +1254,10 @@ class ClinicianApp:
     # ── Clinician commands ────────────────────────────────────────────────────
 
     def _send(self, msg: dict) -> None:
-        self._to_q.put_nowait(msg)
+        try:
+            self._to_q.put_nowait(msg)
+        except Exception as exc:
+            print(f"[WARN] clinician send failed: {exc}", flush=True)
 
     def _cmd_skip(self) -> None:
         self._send({"type": "skip"})
@@ -1411,7 +1421,12 @@ class ClinicianApp:
             print("[ABORT] step 3 — waiting for session_end from patient")
 
     def _cmd_stim_key(self) -> None:
-        self._send({"type": "stim_key"})
+        if not self._session_active:
+            return
+        try:
+            self._send({"type": "stim_key"})
+        except Exception as exc:
+            print(f"[WARN] _cmd_stim_key: {exc}", flush=True)
 
     def _cmd_di_correct(self) -> None:
         if self._task_code == "DI_SEEG":
