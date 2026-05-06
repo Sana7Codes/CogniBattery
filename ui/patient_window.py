@@ -730,7 +730,27 @@ def run_session(
         print("[END] step 6 — sending session_end (abort)")
         _send(to_clin_q, {"type": "session_end", **_stats_payload})
     else:
-        # Natural end: no file I/O in PsychoPy thread; run.py handles save after notes
+        # Natural end: save files immediately so data is on disk before dialog shows.
+        # Notes are appended afterward by run.py; no re-write needed.
+        print("[END] step 5 — natural end: writing summary + Excel immediately")
+        if csv_path:
+            try:
+                write_summary(
+                    session=session, event_log=event_log,
+                    n_trials=n_total, n_correct=n_correct,
+                    n_skipped=stimulus_set.n_skipped,
+                )
+            except Exception as _exc:
+                log_error("write_summary failed (natural end)", _exc)
+            try:
+                from data.session_writer import write_excel_report as _write_xl
+                _write_xl(
+                    session=session, event_log=event_log,
+                    n_trials=n_total, n_correct=n_correct,
+                    n_skipped=stimulus_set.n_skipped,
+                )
+            except Exception as _exc:
+                log_error("write_excel_report failed (natural end)", _exc)
         print("[END] step 6 — sending session_end_pending (natural end)")
         _send(to_clin_q, {"type": "session_end_pending", **_stats_payload})
 

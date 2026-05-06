@@ -289,6 +289,7 @@ def _run_one_session(cfg: dict, args, trigger, eyelink) -> dict:
                     pass
 
             if _msg and _msg.get("type") == "finalize_save":
+                # Files already written in patient_window — only append optional notes.
                 notes = _msg.get("notes", "").strip()
                 if notes and Path(csv_path).exists():
                     try:
@@ -305,35 +306,7 @@ def _run_one_session(cfg: dict, args, trigger, eyelink) -> dict:
                     except Exception as exc:
                         log_error("Error appending notes to CSV", exc)
 
-                _summary_path = None
-                try:
-                    _summary_path = write_summary(
-                        session=session, event_log=event_log,
-                        n_trials=n_total, n_correct=n_correct,
-                        n_skipped=stimulus_set.n_skipped,
-                    )
-                    log_info(f"Summary CSV: {_summary_path}")
-                except Exception as exc:
-                    log_error("Error writing summary", exc)
-
-                _excel_path = None
-                try:
-                    from data.session_writer import write_excel_report as _write_xl
-                    _excel_path = _write_xl(
-                        session=session, event_log=event_log,
-                        n_trials=n_total, n_correct=n_correct,
-                        n_skipped=stimulus_set.n_skipped,
-                    )
-                    log_info(f"Excel report: {_excel_path}")
-                except Exception as exc:
-                    log_error("Error writing Excel report", exc)
-
-                to_clin_q.put_nowait({
-                    "type":         "session_saved",
-                    "csv_path":     str(csv_path),
-                    "summary_path": str(_summary_path or ""),
-                    "excel_path":   str(_excel_path   or ""),
-                })
+                to_clin_q.put_nowait({"type": "session_saved", "csv_path": str(csv_path)})
                 log_info("session_saved sent to clinician")
 
             elif _msg and _msg.get("type") == "finalize_abandon":

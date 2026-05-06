@@ -1021,10 +1021,10 @@ class ClinicianApp:
         dlg.configure(bg=C_BG)
         dlg.resizable(False, False)
         dlg.minsize(480, 1)
-        dlg.protocol("WM_DELETE_WINDOW", lambda: None)
         self._finalise_dlg = dlg
         dlg.transient(self._root)
-        dlg.grab_set()
+        # No grab_set() — causes Text widget focus loss / dialog destruction on macOS.
+        # Controls in the root window are already disabled; lift() keeps dialog on top.
         dlg.lift()
         dlg.attributes("-topmost", True)
         dlg.focus_force()
@@ -1032,8 +1032,14 @@ class ClinicianApp:
 
         PAD = 24
 
+        # Data-safe banner — files written before this dialog was shown
+        tk.Label(
+            dlg, text="✓  Données sauvegardées",
+            font=F_BOLD, fg=C_GREEN, bg=C_BG,
+        ).pack(pady=(16, 2))
+
         tk.Label(dlg, text="Finaliser la session",
-                 font=F_TITLE, fg=C_TEXT, bg=C_BG).pack(pady=(20, 4))
+                 font=F_TITLE, fg=C_TEXT, bg=C_BG).pack(pady=(0, 4))
 
         subtitle = (
             f"Patient : {patient_id}  —  {task_name}  "
@@ -1091,7 +1097,7 @@ class ClinicianApp:
             notes = notes_box.get("1.0", "end-1c").strip()
             save_btn.config(state="disabled")
             abandon_btn.config(state="disabled")
-            status_lbl.config(text="Génération du rapport Excel…")
+            status_lbl.config(text="Enregistrement des notes…")
             dlg.update_idletasks()
             self._send({"type": "finalize_save", "notes": notes})
 
@@ -1138,6 +1144,9 @@ class ClinicianApp:
 
         save_btn.config(command=_do_save)
         abandon_btn.config(command=_do_abandon)
+        # Closing via the window X button is equivalent to "Sauvegarder et fermer"
+        # (data already safe; this just appends any typed notes).
+        dlg.protocol("WM_DELETE_WINDOW", _do_save)
 
     # ── Session end dialog ────────────────────────────────────────────────────
 
