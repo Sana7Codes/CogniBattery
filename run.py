@@ -14,7 +14,6 @@ import argparse
 import csv as _csv_mod
 import datetime as _dt_mod
 import multiprocessing
-import sys
 import time as _time_mod
 from datetime import datetime
 from pathlib import Path
@@ -32,10 +31,8 @@ from core.event_log import Event, EventType
 from data.session_writer import resolve_csv_path, build_metadata, write_summary
 from hardware.micromed import make_trigger
 from hardware.eyelink import make_eyelink
-from tasks.csv_loader import task_folder, TASK_FOLDERS
 from tasks.famous_face import FamousFaceTask
 from tasks.semantic_matching import SemanticMatchingTask
-from tasks.unknown_face import UnknownFaceTask
 
 
 # ── Task class registry ───────────────────────────────────────────────────────

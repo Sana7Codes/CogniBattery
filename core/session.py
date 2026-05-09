@@ -11,7 +11,6 @@ all the information that persists across the trial loop:
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
 
 from core.timing import Clock
 

@@ -52,7 +52,6 @@ import tkinter as tk
 from pathlib import Path
 from queue import Empty
 from tkinter import ttk, messagebox, filedialog
-from typing import Optional
 
 
 # ─── Design tokens ─────────────────────────────────────────────────────────────
@@ -78,28 +77,16 @@ C_AMBER        = "#d97706"
 C_BG_2    = C_BG_SECONDARY
 C_TEXT_2  = C_TEXT_MUTED
 C_TEXT_3  = C_TEXT_FAINT
-C_STIM_ON = C_STIM_ON_BG
-C_STIM_OFF = C_STIM_OFF_BG
 
-# Legacy aliases kept for any remaining references
-BG      = C_BG
-BG2     = C_BG_SECONDARY
-BG3     = C_BG_SECONDARY
-FG      = C_TEXT
-FG_DIM  = C_TEXT_MUTED
+# Aliases still referenced in the codebase
 FG_LIGHT = C_STIM_ON_FG
-GREEN   = C_GREEN
-RED     = C_RED
-ORANGE  = C_AMBER
-STIM_ON  = C_STIM_ON_BG
-STIM_OFF = C_STIM_OFF_BG
+ORANGE   = C_AMBER
 
 # Font constants
 F_BODY   = ("Helvetica Neue", 12)
 F_SMALL  = ("Helvetica Neue", 10)
 F_LABEL  = ("Helvetica Neue", 9)
 F_MONO   = ("Menlo", 11)
-F_MONO_L = ("Menlo", 15)
 F_BOLD   = ("Helvetica Neue", 12, "bold")
 F_TITLE  = ("Helvetica Neue", 16, "bold")
 

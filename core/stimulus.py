@@ -20,8 +20,6 @@ from typing import Optional
 _TWO_CHOICE   = {"MUF_V1", "MUF_V2", "ASM_MOTS", "ASM_SEEG"}
 # Tasks that use 3-choice left/center/right zones
 _THREE_CHOICE = {"FFP_V1", "FFP_V2", "FNP"}
-# Tasks that are verbal (clinician records correctness via keyboard)
-_VERBAL       = {"DI_SEEG"}
 
 
 class Stimulus:

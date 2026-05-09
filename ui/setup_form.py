@@ -15,8 +15,6 @@ import random
 import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, messagebox
-from typing import Optional, Any
-
 from tasks.csv_loader import load_trials, task_folder, TASK_FOLDERS
 from core.stimulus import Stimulus
 

@@ -6,9 +6,6 @@ to implement _check_correct().  Everything else — counterbalance checking,
 response logging, session bookkeeping — lives here.
 """
 
-import csv
-import math
-from pathlib import Path
 from typing import Optional
 
 from core.error_log import log_error, log_warning, log_info
