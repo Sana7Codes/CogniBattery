@@ -8,3 +8,15 @@ data/Patient_*/
 stimuli_raw/
 "Tests Stimulation/"
 *.zip
+
+.vscode/
+.idea/
+*.sublime-project
+.claude/
+.claude_cache/
+*.pdf
+Resultat/
+Resultat 2/
+Tests Stimulation/
+crash_log.txt
+output/

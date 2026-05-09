@@ -2,7 +2,7 @@
 
 A dual-screen clinical application for administering cognitive tasks to patients undergoing
 stereo-electroencephalography (SEEG) recordings with intracerebral electrical stimulation (IES).
-Developed at the **CRéER / ERCN-IMoPA laboratory, Université de Lorraine, Nancy, France**.
+
 
 ---
 
@@ -84,7 +84,6 @@ The integration architecture is in place (`hardware/eyelink.py`) with call sites
 through the trial loop. `RealEyeLink` raises `NotImplementedError` and the system falls back to
 `MockEyeLink` (no-op) in all current sessions.
 
-> **TODO**: Implement `RealEyeLink` using the `pylink` SDK to enable gaze-locked epochs.
 
 ### Touchscreen
 PsychoPy `Mouse` events are used for touch input. Responses within 150 ms of image onset are
@@ -354,9 +353,3 @@ SOFTWARE_VERSION = "1.0.0"
 
 ---
 
-## Authors
-
-- **Sana Haidar** — software development
-- **Dr. Jonas** — neurologist, CHU Nancy — clinical design and validation
-
-CRéER / ERCN-IMoPA laboratory — Université de Lorraine, Nancy, France
